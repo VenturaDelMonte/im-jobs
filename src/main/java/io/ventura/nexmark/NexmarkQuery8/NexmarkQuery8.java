@@ -433,8 +433,27 @@ public class NexmarkQuery8 {
 					}
 				}).setParallelism(sourceParallelism);
 
+	}
+
+	public static void main(String[] args) {
+
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		ParameterTool params = ParameterTool.fromArgs(args);
+
+		try {
+			if (params.getBoolean("debug", false)) {
+				runNexmarkDebug(env, params);
+			} else {
+				runNexmark(env, params);
+			}
+			env.execute("Nexmark Query 8 (Kafka)");
+		} catch (Exception error) {
+			LOG.error("Error", error);
+		}
 
 
 	}
+
 
 }
