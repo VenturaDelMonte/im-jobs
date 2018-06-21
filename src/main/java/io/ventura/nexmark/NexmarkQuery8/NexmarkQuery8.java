@@ -40,56 +40,23 @@ public class NexmarkQuery8 {
 
 	private static final Logger LOG = LoggerFactory.getLogger(NexmarkQuery8.class);
 
-	private static final int[] PORTS = {31337, 31001, 31002, 31003, 31004, 31005, 31006, 31007, 31008, 31009};
+	private static final long ONE_GIGABYTE = 1024L * 1024L * 1024L;
 
 	private static final String PERSONS_TOPIC = "nexmark_persons";
 	private static final String AUCTIONS_TOPIC = "nexmark_auctions";
 
-	static boolean IsCloudMachineNumber(String string) {
-		try {
-			int num = Integer.parseInt(string);
-			return num >= 7 && num <= 37;
-		} catch (Exception e) {
-			return false;
-		}
-	}
-
-	static boolean IsSingleDigit(String string) {
-		return (Integer.valueOf(string) / 10) == 0;
-	}
-
-	public static List<Integer> parsePorts(String ports_string) {
-		List<String> separated_ports = Arrays.asList(ports_string.split(","));
-
-		List<Integer> ports = new ArrayList<>();
-		for (String port : separated_ports) {
-			if (IsSingleDigit(port)) {
-				ports.add(PORTS[Integer.valueOf(port)]);
-			} else {
-				ports.add(Integer.valueOf(port));
-			}
-		}
-
-		return ports;
-	}
-
-	public static List<String> parseHostnames(String hostnames_string) {
-		List<String> hostnames = Arrays.asList(hostnames_string.split(","));
-
-		for (int i = 0; i < hostnames.size(); i++) {
-			if (IsCloudMachineNumber(hostnames.get(i))) {
-				hostnames.set(i, "cloud-" + hostnames.get(i));
-			} else if (hostnames.get(i).equals("l")) {
-				hostnames.set(i, "localhost");
-			}
-		}
-
-		return hostnames;
-	}
-
 	private static class PersonDeserializationSchema implements KeyedDeserializationSchema<NewPersonEvent0[]> {
 
 		private static final TypeInformation<NewPersonEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<NewPersonEvent0[]>() {});
+
+		private final long bytesToRead;
+
+		private long bytesReadSoFar;
+
+		public PersonDeserializationSchema(long bytesToRead) {
+			this.bytesToRead = bytesToRead;
+			this.bytesReadSoFar = 0;
+		}
 
 		@Override
 		public NewPersonEvent0[] deserialize(
@@ -123,12 +90,14 @@ public class NexmarkQuery8 {
 				helper.setLength(0);
 			}
 
+			bytesReadSoFar += buffer.length;
+
 			return data;
 		}
 
 		@Override
 		public boolean isEndOfStream(NewPersonEvent0[] nextElement) {
-			return false;
+			return bytesReadSoFar >= bytesToRead;
 		}
 
 		@Override
@@ -140,6 +109,15 @@ public class NexmarkQuery8 {
 	private static class AuctionsDeserializationSchema implements KeyedDeserializationSchema<AuctionEvent0[]> {
 
 		private static final TypeInformation<AuctionEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<AuctionEvent0[]>() {});
+
+		private final long bytesToRead;
+
+		private long bytesReadSoFar;
+
+		public AuctionsDeserializationSchema(long bytesToRead) {
+			this.bytesToRead = bytesToRead;
+			this.bytesReadSoFar = 0;
+		}
 
 		@Override
 		public AuctionEvent0[] deserialize(
@@ -169,12 +147,14 @@ public class NexmarkQuery8 {
 				data[i] = new AuctionEvent0(ts, id, itemId, pid, (double) price, c, start, end);
 			}
 
+			bytesReadSoFar += buffer.length;
+
 			return data;
 		}
 
 		@Override
 		public boolean isEndOfStream(AuctionEvent0[] nextElement) {
-			return false;
+			return bytesReadSoFar >= bytesToRead;
 		}
 
 		@Override
@@ -295,6 +275,9 @@ public class NexmarkQuery8 {
 		final int maxParallelism = params.getInt("maxParallelism", 1024);
 		final int numOfVirtualNodes = params.getInt("numOfVirtualNodes", 4);
 
+		final int personStreamSizeBytes = params.getInt("personStreamSizeBytes", 1);
+		final int auctionStreamSizeBytes = params.getInt("auctionStreamSizeBytes", 1);
+
 		final String kafkaServers = params.get("kafkaServers", "localhost:9092");
 
 		Properties baseCfg = new Properties();
@@ -318,10 +301,10 @@ public class NexmarkQuery8 {
 		env.getConfig().registerTypeWithKryoSerializer(NewPersonEvent0.class, NewPersonEvent0.NewPersonEventKryoSerializer.class);
 
 		FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSourcePersons =
-				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(), baseCfg);
+				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(personStreamSizeBytes * ONE_GIGABYTE), baseCfg);
 
 		FlinkKafkaConsumer011<AuctionEvent0[]> kafkaSourceAuctions =
-				new FlinkKafkaConsumer011<>(AUCTIONS_TOPIC, new AuctionsDeserializationSchema(), baseCfg);
+				new FlinkKafkaConsumer011<>(AUCTIONS_TOPIC, new AuctionsDeserializationSchema(auctionStreamSizeBytes * ONE_GIGABYTE), baseCfg);
 
 		kafkaSourceAuctions.setCommitOffsetsOnCheckpoints(true);
 		kafkaSourceAuctions.setStartFromEarliest();
@@ -382,7 +365,7 @@ public class NexmarkQuery8 {
 		final int maxParallelism = params.getInt("maxParallelism", 1024);
 		final int numOfVirtualNodes = params.getInt("numOfVirtualNodes", 4);
 		final String kafkaServers = params.get("kafkaServers", "localhost:9092");
-
+		final int personStreamSizeBytes = params.getInt("personStreamSizeBytes", 1);
 
 		Properties baseCfg = new Properties();
 
@@ -404,7 +387,7 @@ public class NexmarkQuery8 {
 		env.getConfig().registerTypeWithKryoSerializer(NewPersonEvent0.class, NewPersonEvent0.NewPersonEventKryoSerializer.class);
 
 		FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSource =
-				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(), baseCfg);
+				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(ONE_GIGABYTE * personStreamSizeBytes), baseCfg);
 
 		kafkaSource.setStartFromEarliest();
 		kafkaSource.setCommitOffsetsOnCheckpoints(true);
