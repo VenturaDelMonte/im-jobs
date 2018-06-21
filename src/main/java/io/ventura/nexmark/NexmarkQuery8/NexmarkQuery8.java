@@ -331,26 +331,26 @@ public class NexmarkQuery8 {
 		DataStream<NewPersonEvent0> in1 = env
 				.addSource(kafkaSourcePersons)
 				.name("NewPersonsInputStream").setParallelism(sourceParallelism)
-				.flatMap(new PersonsFlatMapper())
+				.flatMap(new PersonsFlatMapper()).setParallelism(sourceParallelism)
 				.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(1)) {
 
 					@Override
 					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
 						return newPersonEvent.timestamp;
 					}
-			})
+			}).setParallelism(sourceParallelism)
 		;
 
 		DataStream<AuctionEvent0> in2 = env
 				.addSource(kafkaSourceAuctions)
 				.name("AuctionEventInputStream").setParallelism(sourceParallelism)
-				.flatMap(new AuctionsFlatMapper())
+				.flatMap(new AuctionsFlatMapper()).setParallelism(sourceParallelism)
 				.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<AuctionEvent0>(Time.seconds(1)) {
 					@Override
 					public long extractTimestamp(AuctionEvent0 auctionEvent) {
 						return auctionEvent.timestamp;
 					}
-				})
+				}).setParallelism(sourceParallelism)
 		;
 
 
@@ -419,7 +419,7 @@ public class NexmarkQuery8 {
 							out.collect(item);
 						}
 					}
-				})
+				}).setParallelism(sourceParallelism)
 //				.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(1)) {
 //					@Override
 //					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
