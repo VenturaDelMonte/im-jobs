@@ -275,8 +275,8 @@ public class NexmarkQuery8 {
 		final int maxParallelism = params.getInt("maxParallelism", 1024);
 		final int numOfVirtualNodes = params.getInt("numOfVirtualNodes", 4);
 
-		final int personStreamSizeBytes = params.getInt("personStreamSizeBytes", 1);
-		final int auctionStreamSizeBytes = params.getInt("auctionStreamSizeBytes", 1);
+		final int personStreamSizeBytes = params.getInt("personStreamSizeGb", 1);
+		final int auctionStreamSizeBytes = params.getInt("auctionStreamSizeGb", 1);
 
 		final String kafkaServers = params.get("kafkaServers", "localhost:9092");
 
