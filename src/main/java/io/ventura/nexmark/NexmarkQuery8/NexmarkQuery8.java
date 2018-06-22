@@ -47,6 +47,8 @@ public class NexmarkQuery8 {
 
 	private static class PersonDeserializationSchema implements KeyedDeserializationSchema<NewPersonEvent0[]> {
 
+		private static final int PERSON_RECORD_SIZE = 72;
+
 		private static final TypeInformation<NewPersonEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<NewPersonEvent0[]>() {});
 
 		private final long bytesToRead;
@@ -54,7 +56,7 @@ public class NexmarkQuery8 {
 		private long bytesReadSoFar;
 
 		public PersonDeserializationSchema(long bytesToRead) {
-			this.bytesToRead = bytesToRead;
+			this.bytesToRead = (bytesToRead / PERSON_RECORD_SIZE) * PERSON_RECORD_SIZE;
 			this.bytesReadSoFar = 0;
 		}
 
@@ -108,6 +110,8 @@ public class NexmarkQuery8 {
 
 	private static class AuctionsDeserializationSchema implements KeyedDeserializationSchema<AuctionEvent0[]> {
 
+		private static final int AUCTION_RECORD_SIZE = 49;
+
 		private static final TypeInformation<AuctionEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<AuctionEvent0[]>() {});
 
 		private final long bytesToRead;
@@ -115,7 +119,7 @@ public class NexmarkQuery8 {
 		private long bytesReadSoFar;
 
 		public AuctionsDeserializationSchema(long bytesToRead) {
-			this.bytesToRead = bytesToRead;
+			this.bytesToRead = (bytesToRead / AUCTION_RECORD_SIZE) * AUCTION_RECORD_SIZE;
 			this.bytesReadSoFar = 0;
 		}
 
