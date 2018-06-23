@@ -288,8 +288,7 @@ public class NexmarkQuery8 {
 		final int maxParallelism = params.getInt("maxParallelism", 1024);
 		final int numOfVirtualNodes = params.getInt("numOfVirtualNodes", 4);
 
-		final int personStreamSizeBytes = params.getInt("personStreamSizeGb", 1);
-		final int auctionStreamSizeBytes = params.getInt("auctionStreamSizeGb", 1);
+		final int numOfReplicaSlotsHint = params.getInt("numOfReplicaSlotsHint", 1);
 
 		final String kafkaServers = params.get("kafkaServers", "localhost:9092");
 
@@ -359,6 +358,7 @@ public class NexmarkQuery8 {
 				.name("WindowOperator")
 				.setParallelism(windowParallelism)
 				.setVirtualNodesNum(numOfVirtualNodes)
+				.setReplicaSlotsHint(numOfReplicaSlotsHint)
 			.addSink(new NexmarkQuery8LatencyTrackingSink())
 				.name("Nexmark8Sink")
 				.setParallelism(sinkParallelism);
