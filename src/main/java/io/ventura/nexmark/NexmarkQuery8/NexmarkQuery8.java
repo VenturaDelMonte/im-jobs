@@ -47,7 +47,7 @@ public class NexmarkQuery8 {
 
 	private static class PersonDeserializationSchema implements KeyedDeserializationSchema<NewPersonEvent0[]> {
 
-		private static final int PERSON_RECORD_SIZE = 128;
+		private static final int PERSON_RECORD_SIZE = 206;
 
 		private static final TypeInformation<NewPersonEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<NewPersonEvent0[]>() {});
 
@@ -79,7 +79,7 @@ public class NexmarkQuery8 {
 
 			NewPersonEvent0[] data = new NewPersonEvent0[itemsInThisBuffer];
 
-			byte[] tmp = new byte[16];
+			byte[] tmp = new byte[32];
 
 			long ingestionTimestamp = System.currentTimeMillis();
 
