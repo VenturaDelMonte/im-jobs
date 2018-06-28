@@ -9,7 +9,6 @@ import org.apache.flink.api.common.functions.RichCoGroupFunction;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.java.io.CsvInputFormat;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Histogram;
@@ -27,16 +26,14 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
 import org.apache.flink.streaming.util.serialization.KeyedDeserializationSchema;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.Preconditions;
-import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Properties;
 
 public class NexmarkQuery8 {
@@ -50,7 +47,7 @@ public class NexmarkQuery8 {
 
 	private static class PersonDeserializationSchema implements KeyedDeserializationSchema<NewPersonEvent0[]> {
 
-		private static final int PERSON_RECORD_SIZE = 72;
+		private static final int PERSON_RECORD_SIZE = 128;
 
 		private static final TypeInformation<NewPersonEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<NewPersonEvent0[]>() {});
 
@@ -73,7 +70,7 @@ public class NexmarkQuery8 {
 				int partition,
 				long offset) throws IOException {
 
-			ByteBuffer wrapper = ByteBuffer.wrap(buffer);
+			ByteBuffer wrapper = ByteBuffer.wrap(buffer).asReadOnlyBuffer();
 			int checksum = wrapper.getInt();
 			int itemsInThisBuffer = wrapper.getInt();
 			long newBacklog = wrapper.getLong();
@@ -82,23 +79,46 @@ public class NexmarkQuery8 {
 
 			NewPersonEvent0[] data = new NewPersonEvent0[itemsInThisBuffer];
 
-			byte[] tmp = new byte[4 * 10];
+			byte[] tmp = new byte[16];
 
-			StringBuilder helper = new StringBuilder(64);
+			long ingestionTimestamp = System.currentTimeMillis();
+
 			for (int i = 0; i < data.length; i++) {
 				long id = wrapper.getLong();
 				wrapper.get(tmp);
-				long c = wrapper.getLong();
+				String name = new String(Arrays.copyOf(tmp, tmp.length));
+				wrapper.get(tmp);
+				String surname = new String(Arrays.copyOf(tmp, tmp.length));
+				wrapper.get(tmp);
+				String email = name + "." + surname + "@" + new String(Arrays.copyOf(tmp, tmp.length));
+				wrapper.get(tmp);
+				String city = new String(Arrays.copyOf(tmp, tmp.length));
+				wrapper.get(tmp);
+				String country = new String(Arrays.copyOf(tmp, tmp.length));
+				long creditCard0 = wrapper.getLong();
+				long creditCard1 = wrapper.getLong();
 				int a = wrapper.getInt();
 				int b = wrapper.getInt();
-				long ts = wrapper.getLong();
-				String s = new String(tmp);
-				String cc = helper.append(c).append(a).append(b).toString();
-				data[i] = new NewPersonEvent0(ts, id, s, s, s, s, s, cc, cc, cc);
-				helper.setLength(0);
+				int c = wrapper.getInt();
+				short maleOrFemale = wrapper.getShort();
+				long timestamp = wrapper.getLong(); // 128
+//				Preconditions.checkArgument(timestamp > 0);
+				data[i] = new NewPersonEvent0(
+						timestamp,
+						id,
+						name + " " + surname,
+						email,
+						city,
+						country,
+						"" + (a - c),
+						"" + (b - c),
+						email,
+						"" + (creditCard0 + creditCard1),
+						ingestionTimestamp);
 			}
 
 //			bytesReadSoFar += buffer.length;
+			Preconditions.checkArgument(newBacklog < lastBacklog, "newBacklog: %s oldBacklog: %s", newBacklog, lastBacklog);
 			lastBacklog = newBacklog;
 
 			return data;
@@ -117,7 +137,7 @@ public class NexmarkQuery8 {
 
 	private static class AuctionsDeserializationSchema implements KeyedDeserializationSchema<AuctionEvent0[]> {
 
-		private static final int AUCTION_RECORD_SIZE = 49;
+		private static final int AUCTION_RECORD_SIZE = 269;
 
 		private static final TypeInformation<AuctionEvent0[]> FLINK_INTERNAL_TYPE = TypeInformation.of(new TypeHint<AuctionEvent0[]>() {});
 
@@ -148,6 +168,10 @@ public class NexmarkQuery8 {
 			Preconditions.checkArgument(checksum == 0x30061992);
 
 			AuctionEvent0[] data = new AuctionEvent0[itemsInThisBuffer];
+			long ingestionTimestamp = System.currentTimeMillis();
+
+			byte[] tmp0 = new byte[20];
+			byte[] tmp1 = new byte[200];
 
 			for (int i = 0; i < data.length; i++) {
 				long id = wrapper.getLong();
@@ -157,11 +181,26 @@ public class NexmarkQuery8 {
 				long start = wrapper.getLong();
 				long end = wrapper.getLong();
 				int price = wrapper.getInt();
+				wrapper.get(tmp0);
+				wrapper.get(tmp1);
 				long ts = wrapper.getLong();
-				data[i] = new AuctionEvent0(ts, id, itemId, pid, (double) price, c, start, end);
+//				Preconditions.checkArgument(ts > 0);
+				data[i] = new AuctionEvent0(
+						ts,
+						id,
+						new String(Arrays.copyOf(tmp0, tmp0.length)),
+						new String(Arrays.copyOf(tmp1, tmp1.length)),
+						itemId,
+						pid,
+						(double) price,
+						c,
+						start,
+						end,
+						ingestionTimestamp);
 			}
 
 //			bytesReadSoFar += buffer.length;
+			Preconditions.checkArgument(newBacklog < lastBacklog, "newBacklog: %s oldBacklog: %s", newBacklog, lastBacklog);
 			lastBacklog = newBacklog;
 
 			return data;
@@ -370,7 +409,8 @@ public class NexmarkQuery8 {
 
 		Properties baseCfg = new Properties();
 
-		baseCfg.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServers);
+		baseCfg.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServers);
+		baseCfg.setProperty(ConsumerConfig.RECEIVE_BUFFER_CONFIG, "" + (128 * 1024));
 
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 		env.setRestartStrategy(RestartStrategies.noRestart());
@@ -404,7 +444,6 @@ public class NexmarkQuery8 {
 				.name("NewPersonsInputStream").setParallelism(sourceParallelism)
 				.flatMap(new PersonsFlatMapper()).setParallelism(sourceParallelism)
 				.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(1)) {
-
 					@Override
 					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
 						return newPersonEvent.timestamp;
@@ -458,7 +497,8 @@ public class NexmarkQuery8 {
 
 		Properties baseCfg = new Properties();
 
-		baseCfg.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServers);
+		baseCfg.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServers);
+		baseCfg.setProperty(ConsumerConfig.RECEIVE_BUFFER_CONFIG, "" + (128 * 1024));
 
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 		env.setRestartStrategy(RestartStrategies.noRestart());
