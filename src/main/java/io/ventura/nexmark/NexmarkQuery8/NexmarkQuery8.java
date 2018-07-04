@@ -70,10 +70,13 @@ public class NexmarkQuery8 {
 				int partition,
 				long offset) throws IOException {
 
-			ByteBuffer wrapper = ByteBuffer.wrap(buffer).asReadOnlyBuffer();
+			Preconditions.checkArgument(buffer.length == 8192);
+			ByteBuffer wrapper = ByteBuffer.wrap(buffer);
 			int checksum = wrapper.getInt();
 			int itemsInThisBuffer = wrapper.getInt();
 			long newBacklog = wrapper.getLong();
+
+			Preconditions.checkArgument(((8192 - 16) / PERSON_RECORD_SIZE) >= itemsInThisBuffer); 
 
 			Preconditions.checkArgument(checksum == 0x30011991);
 
@@ -160,12 +163,15 @@ public class NexmarkQuery8 {
 				int partition,
 				long offset) throws IOException {
 
+			Preconditions.checkArgument(buffer.length == 8192);
+
 			ByteBuffer wrapper = ByteBuffer.wrap(buffer);
 			int checksum = wrapper.getInt();
 			int itemsInThisBuffer = wrapper.getInt();
 			long newBacklog = wrapper.getLong();
 
 			Preconditions.checkArgument(checksum == 0x30061992);
+			Preconditions.checkArgument(((8192 - 16) / AUCTION_RECORD_SIZE) >= itemsInThisBuffer);
 
 			AuctionEvent0[] data = new AuctionEvent0[itemsInThisBuffer];
 			long ingestionTimestamp = System.currentTimeMillis();
@@ -426,8 +432,13 @@ public class NexmarkQuery8 {
 		env.setMaxParallelism(maxParallelism);
 		env.getConfig().setLatencyTrackingInterval(latencyTrackingInterval);
 
+		env.getConfig().enableForceKryo();
 		env.getConfig().registerTypeWithKryoSerializer(AuctionEvent0.class, AuctionEvent0.AuctionEventKryoSerializer.class);
 		env.getConfig().registerTypeWithKryoSerializer(NewPersonEvent0.class, NewPersonEvent0.NewPersonEventKryoSerializer.class);
+		env.getConfig().addDefaultKryoSerializer(AuctionEvent0.class, AuctionEvent0.AuctionEventKryoSerializer.class);
+		env.getConfig().addDefaultKryoSerializer(NewPersonEvent0.class, NewPersonEvent0.NewPersonEventKryoSerializer.class);
+		env.getConfig().registerKryoType(AuctionEvent0.class);
+		env.getConfig().registerKryoType(NewPersonEvent0.class);
 
 		FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSourcePersons =
 				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(), baseCfg);
@@ -449,7 +460,7 @@ public class NexmarkQuery8 {
 					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
 						return newPersonEvent.timestamp;
 					}
-			}).setParallelism(sourceParallelism)
+			}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}))
 		;
 
 		DataStream<AuctionEvent0> in2 = env
@@ -461,7 +472,7 @@ public class NexmarkQuery8 {
 					public long extractTimestamp(AuctionEvent0 auctionEvent) {
 						return auctionEvent.timestamp;
 					}
-				}).setParallelism(sourceParallelism)
+				}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<AuctionEvent0>() {}))
 		;
 
 
