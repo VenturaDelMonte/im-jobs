@@ -20,6 +20,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
@@ -398,6 +399,8 @@ public class NexmarkQuery8 {
 		final int sourceParallelism = params.getInt("sourceParallelism", 1);
 		final int windowParallelism = params.getInt("windowParallelism", 1);
 		final int windowDuration = params.getInt("windowDuration", 1);
+		Preconditions.checkArgument(windowDuration > 0);
+		final int windowSlide = params.getInt("windowSlide", windowDuration == 1 ? 1 : windowDuration / 2);
 		final int sinkParallelism = params.getInt("sinkParallelism", windowParallelism);
 
 		final int checkpointingInterval = params.getInt("checkpointingInterval", 0);
@@ -480,7 +483,7 @@ public class NexmarkQuery8 {
 			.coGroup(in2)
 				.where(NewPersonEvent0::getPersonId)
 				.equalTo(AuctionEvent0::getPersonId)
-				.window(TumblingEventTimeWindows.of(Time.seconds(windowDuration)))
+				.window(SlidingEventTimeWindows.of(Time.seconds(windowDuration), Time.seconds(windowSlide)))
 				.with(new JoiningNewUsersWithAuctionsCoGroupFunction())
 				.name("WindowOperator")
 				.setParallelism(windowParallelism)

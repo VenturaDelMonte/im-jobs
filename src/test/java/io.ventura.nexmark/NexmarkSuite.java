@@ -55,6 +55,7 @@ public class NexmarkSuite {
 		config.setString(ReplicationOptions.TASK_MANAGER_CHECKPOINT_READER, "zero-copy-fadvise");
 		config.setString(CheckpointingOptions.STATE_BACKEND, "custom");
 		config.setInteger(ReplicationOptions.STATE_REPLICATION_FACTOR, 1);
+		config.setInteger(ReplicationOptions.STATE_REPLICATION_ACK_TIMEOUT, 10000);
 		config.setInteger(ReplicationOptions.STATE_REPLICATION_REPLICA_SLOTS, 20);
 		config.setString(TaskManagerOptions.CHECKPOINT_DIRECTORY_URI_PATH, System.getProperty("java.io.tmpdir"));
 
