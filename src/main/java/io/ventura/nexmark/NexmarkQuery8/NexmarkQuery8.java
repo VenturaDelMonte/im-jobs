@@ -3,6 +3,11 @@ package io.ventura.nexmark.NexmarkQuery8;
 import io.ventura.nexmark.beans.AuctionEvent0;
 import io.ventura.nexmark.beans.NewPersonEvent0;
 import io.ventura.nexmark.beans.Query8WindowOutput;
+import io.ventura.nexmark.original.Cities;
+import io.ventura.nexmark.original.Countries;
+import io.ventura.nexmark.original.Emails;
+import io.ventura.nexmark.original.Firstnames;
+import io.ventura.nexmark.original.Lastnames;
 import org.apache.commons.math3.stat.descriptive.SummaryStatistics;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.RichCoGroupFunction;
@@ -19,6 +24,7 @@ import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
@@ -36,6 +42,8 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Properties;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class NexmarkQuery8 {
 
@@ -394,13 +402,86 @@ public class NexmarkQuery8 {
 		}
 	}
 
+
+	private static class PersonAutoGen extends RichParallelSourceFunction<NewPersonEvent0> {
+
+		private volatile boolean keepGoing = true;
+
+		private static final AtomicLong currentPersonId = new AtomicLong();
+
+		@Override
+		public void run(SourceContext<NewPersonEvent0> ctx) throws Exception {
+			ThreadLocalRandom r = ThreadLocalRandom.current();
+			Thread.sleep(r.nextInt(100, 500));
+			while (keepGoing) {
+				synchronized (ctx.getCheckpointLock()) {
+					for (int i = 0; i < 32; i++) {
+						int ifn = r.nextInt(Firstnames.NUM_FIRSTNAMES);
+						int iln = r.nextInt(Lastnames.NUM_LASTNAMES);
+						int iem = r.nextInt(Emails.NUM_EMAILS);
+						int ict = r.nextInt(Countries.NUM_COUNTRIES);
+						int icy = r.nextInt(Cities.NUM_CITIES);
+						long now = System.currentTimeMillis();
+						ctx.collect(new NewPersonEvent0(
+								now,
+								currentPersonId.getAndIncrement(),
+								Firstnames.FIRSTNAMES_32[ifn] + " " + Lastnames.LASTNAMES_32[iln],
+								new String(Emails.EMAILS_32[iem]),
+								new String(Cities.CITIES_32[icy]),
+								new String(Countries.COUNTRIES_32[ict]),
+								"123456789012312312",
+								"123456789012312312",
+								new String(Emails.EMAILS_32[iem]),
+								"123456789012312312",
+								now));
+					}
+				}
+				Thread.sleep(200);
+			}
+			ctx.close();
+		}
+
+		@Override
+		public void cancel() {
+			keepGoing = false;
+		}
+	}
+
+	public static class AuctionAutoGen extends RichParallelSourceFunction<AuctionEvent0> {
+
+		private volatile boolean keepGoing = true;
+
+		private static final AtomicLong currentAuctionId = new AtomicLong();
+
+
+		@Override
+		public void run(SourceContext<AuctionEvent0> ctx) throws Exception {
+			ThreadLocalRandom r = ThreadLocalRandom.current();
+			Thread.sleep(r.nextInt(100, 500));
+			while (keepGoing) {
+				synchronized (ctx.getCheckpointLock()) {
+					for (int i = 0; i < 32; i++) {
+
+					}
+				}
+				Thread.sleep(200);
+			}
+			ctx.close();
+		}
+
+		@Override
+		public void cancel() {
+			keepGoing = false;
+		}
+	}
+
 	public static void runNexmark(StreamExecutionEnvironment env, ParameterTool params) throws Exception {
 
 		final int sourceParallelism = params.getInt("sourceParallelism", 1);
 		final int windowParallelism = params.getInt("windowParallelism", 1);
 		final int windowDuration = params.getInt("windowDuration", 1);
 		Preconditions.checkArgument(windowDuration > 0);
-		final int windowSlide = params.getInt("windowSlide", windowDuration == 1 ? 1 : windowDuration / 2);
+//		final int windowSlide = params.getInt("windowSlide", windowDuration == 1 ? 1 : windowDuration / 2);
 		final int sinkParallelism = params.getInt("sinkParallelism", windowParallelism);
 
 		final int checkpointingInterval = params.getInt("checkpointingInterval", 0);
@@ -412,6 +493,8 @@ public class NexmarkQuery8 {
 		final int maxParallelism = params.getInt("maxParallelism", 1024);
 		final int numOfVirtualNodes = params.getInt("numOfVirtualNodes", 4);
 
+		final boolean autogen = params.getBoolean("autogen", false);
+
 		final int numOfReplicaSlotsHint = params.getInt("numOfReplicaSlotsHint", 1);
 
 		final String kafkaServers = params.get("kafkaServers", "localhost:9092");
@@ -421,6 +504,7 @@ public class NexmarkQuery8 {
 		baseCfg.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServers);
 		baseCfg.setProperty(ConsumerConfig.RECEIVE_BUFFER_CONFIG, "" + (128 * 1024));
 		baseCfg.setProperty(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "8192");
+		baseCfg.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "im-job");
 
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 		env.setRestartStrategy(RestartStrategies.noRestart());
@@ -443,18 +527,52 @@ public class NexmarkQuery8 {
 		env.getConfig().registerKryoType(AuctionEvent0.class);
 		env.getConfig().registerKryoType(NewPersonEvent0.class);
 
-		FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSourcePersons =
+		DataStream<NewPersonEvent0> in1;
+		DataStream<AuctionEvent0> in2;
+
+		if (autogen) {
+
+			in1 = env.addSource(new PersonAutoGen()).name("NewPersonsInputStream").setParallelism(sourceParallelism)
+			.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(1)) {
+					@Override
+					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
+						return newPersonEvent.timestamp;
+					}
+			}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}));
+
+			in2 = env.addSource(new RichParallelSourceFunction<AuctionEvent0>() {
+				@Override
+				public void run(SourceContext<AuctionEvent0> ctx) throws Exception {
+
+				}
+
+				@Override
+				public void cancel() {
+
+				}
+			}).name("AuctionEventInputStream").setParallelism(sourceParallelism)
+			.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<AuctionEvent0>(Time.seconds(1)) {
+				@Override
+				public long extractTimestamp(AuctionEvent0 auctionEvent) {
+					return auctionEvent.timestamp;
+				}
+			}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<AuctionEvent0>() {}));
+
+
+		} else {
+
+			FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSourcePersons =
 				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(), baseCfg);
 
-		FlinkKafkaConsumer011<AuctionEvent0[]> kafkaSourceAuctions =
-				new FlinkKafkaConsumer011<>(AUCTIONS_TOPIC, new AuctionsDeserializationSchema(), baseCfg);
+			FlinkKafkaConsumer011<AuctionEvent0[]> kafkaSourceAuctions =
+					new FlinkKafkaConsumer011<>(AUCTIONS_TOPIC, new AuctionsDeserializationSchema(), baseCfg);
 
-		kafkaSourceAuctions.setCommitOffsetsOnCheckpoints(true);
-		kafkaSourceAuctions.setStartFromEarliest();
-		kafkaSourcePersons.setCommitOffsetsOnCheckpoints(true);
-		kafkaSourcePersons.setStartFromEarliest();
+			kafkaSourceAuctions.setCommitOffsetsOnCheckpoints(true);
+			kafkaSourceAuctions.setStartFromEarliest();
+			kafkaSourcePersons.setCommitOffsetsOnCheckpoints(true);
+			kafkaSourcePersons.setStartFromEarliest();
 
-		DataStream<NewPersonEvent0> in1 = env
+			in1 = env
 				.addSource(kafkaSourcePersons)
 				.name("NewPersonsInputStream").setParallelism(sourceParallelism)
 				.flatMap(new PersonsFlatMapper()).setParallelism(sourceParallelism)
@@ -463,10 +581,10 @@ public class NexmarkQuery8 {
 					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
 						return newPersonEvent.timestamp;
 					}
-			}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}))
-		;
+				}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}))
+			;
 
-		DataStream<AuctionEvent0> in2 = env
+			in2 = env
 				.addSource(kafkaSourceAuctions)
 				.name("AuctionEventInputStream").setParallelism(sourceParallelism)
 				.flatMap(new AuctionsFlatMapper()).setParallelism(sourceParallelism)
@@ -476,14 +594,14 @@ public class NexmarkQuery8 {
 						return auctionEvent.timestamp;
 					}
 				}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<AuctionEvent0>() {}))
-		;
-
+			;
+		}
 
 		in1
 			.coGroup(in2)
 				.where(NewPersonEvent0::getPersonId)
 				.equalTo(AuctionEvent0::getPersonId)
-				.window(SlidingEventTimeWindows.of(Time.seconds(windowDuration), Time.seconds(windowSlide)))
+				.window(TumblingEventTimeWindows.of(Time.hours(windowDuration)))
 				.with(new JoiningNewUsersWithAuctionsCoGroupFunction())
 				.name("WindowOperator")
 				.setParallelism(windowParallelism)

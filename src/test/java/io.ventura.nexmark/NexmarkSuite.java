@@ -31,8 +31,8 @@ public class NexmarkSuite {
 	private static final Logger LOG = LoggerFactory.getLogger(NexmarkSuite.class);
 
 
-	private static final int numTaskManagers = 2;
-	private static final int slotsPerTaskManager = 4;
+	private static final int numTaskManagers = 4;
+	private static final int slotsPerTaskManager = 1;
 
 
 	private static TestingCluster cluster;
@@ -52,12 +52,22 @@ public class NexmarkSuite {
 		config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 		config.setInteger(WebOptions.PORT, 8081);
 
-		config.setString(ReplicationOptions.TASK_MANAGER_CHECKPOINT_READER, "zero-copy-fadvise");
+		config.setString(ReplicationOptions.TASK_MANAGER_CHECKPOINT_READER, "zero-copy");
 		config.setString(CheckpointingOptions.STATE_BACKEND, "custom");
-		config.setInteger(ReplicationOptions.STATE_REPLICATION_FACTOR, 1);
-		config.setInteger(ReplicationOptions.STATE_REPLICATION_ACK_TIMEOUT, 10000);
-		config.setInteger(ReplicationOptions.STATE_REPLICATION_REPLICA_SLOTS, 20);
+		config.setInteger(ReplicationOptions.STATE_REPLICATION_FACTOR, 2);
+//		config.setInteger(ReplicationOptions.STATE_REPLICATION_ACK_TIMEOUT, 10000);
+		config.setInteger(ReplicationOptions.STATE_REPLICATION_REPLICA_SLOTS, 25);
+		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_PER_REPLICA, 1);
+		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_PER_REPLICA_MAX, 2);
+		config.setInteger(TaskManagerOptions.NETWORK_BUFFERS_PER_CHANNEL, 4);
+		config.setInteger(TaskManagerOptions.NETWORK_EXTRA_BUFFERS_PER_GATE, 16);
+		config.setString(ReplicationOptions.TASK_MANAGER_STATE_ROCKSDB_PREDEF, "ssd");
+		config.setLong(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_MIN, 512 * 1024);
+		config.setLong(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_MAX, 1024 * 1024);
+		config.setFloat(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_FRACTION, 0.1f);
 		config.setString(TaskManagerOptions.CHECKPOINT_DIRECTORY_URI_PATH, System.getProperty("java.io.tmpdir"));
+		config.setString(ReplicationOptions.JM_REPLICATION_DIRECTORY, System.getProperty("java.io.tmpdir") + "/jm");
+		config.setString(ReplicationOptions.REPLICATION_DIRECTORY, System.getProperty("java.io.tmpdir") + "/t1:" + System.getProperty("java.io.tmpdir") + "/t2");
 
 		cluster = new TestingCluster(config);
 		cluster.start();
@@ -91,7 +101,7 @@ public class NexmarkSuite {
 		FiniteDuration timeout = new FiniteDuration(10, TimeUnit.MINUTES);
 		Deadline deadline = timeout.fromNow();
 
-		ActorGateway jobManager = cluster.getLeaderGateway(deadline.timeLeft());
+		cluster.getLeaderGateway(deadline.timeLeft());
 
 		cluster.submitJobAndWait(jobGraph, true);
 	}
@@ -101,10 +111,12 @@ public class NexmarkSuite {
 
 		Map<String, String> config = new HashMap<>();
 
-		config.put("personsInputSizeGb", "1");
-		config.put("checkpointingInterval", "5000");
+		config.put("windowDuration", "90");
+		config.put("checkpointingInterval", "60000");
+//		config.put("checkpointingTimeout", ""+(2*60*1000));
 		config.put("windowParallelism", "4");
 		config.put("sourceParallelism", "2");
+		config.put("minPauseBetweenCheckpoints", "10000");
 		config.put("sinkParallelism", "4");
 
 		ParameterTool params = ParameterTool.fromMap(config);
