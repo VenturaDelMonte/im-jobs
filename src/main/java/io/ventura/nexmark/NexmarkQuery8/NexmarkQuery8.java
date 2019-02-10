@@ -26,9 +26,13 @@ import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
+import org.apache.flink.streaming.api.windowing.assigners.DynamicEventTimeSessionWindows;
+import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.WindowAssigner;
 import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
 import org.apache.flink.streaming.util.serialization.KeyedDeserializationSchema;
 import org.apache.flink.util.Collector;
@@ -481,8 +485,9 @@ public class NexmarkQuery8 {
 		final int sourceParallelism = params.getInt("sourceParallelism", 1);
 		final int windowParallelism = params.getInt("windowParallelism", 1);
 		final int windowDuration = params.getInt("windowDuration", 1);
+		final int windowType = params.getInt("windowType", 0);
 		Preconditions.checkArgument(windowDuration > 0);
-//		final int windowSlide = params.getInt("windowSlide", windowDuration == 1 ? 1 : windowDuration / 2);
+		final int windowSlide = params.getInt("windowSlide", windowType == 1 ? windowDuration / 2 : windowDuration);
 		final int sinkParallelism = params.getInt("sinkParallelism", windowParallelism);
 
 		final int checkpointingInterval = params.getInt("checkpointingInterval", 0);
@@ -598,12 +603,26 @@ public class NexmarkQuery8 {
 				}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<AuctionEvent0>() {}))
 			;
 		}
+		WindowAssigner<Object, TimeWindow> assigner = null;
+		switch (windowType) {
+			case 0:
+				assigner = TumblingEventTimeWindows.of(Time.seconds(windowDuration));
+				break;
+			case 1:
+				assigner = SlidingEventTimeWindows.of(Time.seconds(windowDuration), Time.seconds(windowSlide));
+				break;
+			case 2:
+				assigner = EventTimeSessionWindows.withGap(Time.seconds(windowDuration));
+				break;
+			default:
+				throw new IllegalStateException();
+		}
 
 		in1
 			.coGroup(in2)
 				.where(NewPersonEvent0::getPersonId)
 				.equalTo(AuctionEvent0::getPersonId)
-				.window(TumblingEventTimeWindows.of(Time.seconds(windowDuration)))
+				.window(assigner)
 				.with(new JoiningNewUsersWithAuctionsCoGroupFunction())
 				.name("WindowOperator(" + windowDuration + ")")
 				.setParallelism(windowParallelism)
