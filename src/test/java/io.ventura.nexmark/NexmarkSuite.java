@@ -9,6 +9,7 @@ import org.apache.flink.configuration.ReplicationOptions;
 import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.configuration.WebOptions;
 import org.apache.flink.runtime.instance.ActorGateway;
+import org.apache.flink.runtime.io.network.netty.NettyConfig;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.testingUtils.TestingCluster;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -54,20 +55,28 @@ public class NexmarkSuite {
 
 		config.setString(ReplicationOptions.TASK_MANAGER_CHECKPOINT_READER, "zero-copy");
 		config.setString(CheckpointingOptions.STATE_BACKEND, "custom");
-		config.setInteger(ReplicationOptions.STATE_REPLICATION_FACTOR, 2);
-//		config.setInteger(ReplicationOptions.STATE_REPLICATION_ACK_TIMEOUT, 10000);
-		config.setInteger(ReplicationOptions.STATE_REPLICATION_REPLICA_SLOTS, 25);
-		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_PER_REPLICA, 1);
-		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_PER_REPLICA_MAX, 2);
-		config.setInteger(TaskManagerOptions.NETWORK_BUFFERS_PER_CHANNEL, 4);
-		config.setInteger(TaskManagerOptions.NETWORK_EXTRA_BUFFERS_PER_GATE, 16);
+		config.setBoolean(NettyConfig.REPLICATION_SHARE_NETTY_THREADS_POOL, false);
+		config.setInteger(NettyConfig.REPLICATION_NUM_OF_ARENAS, 16);
+		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_SIZE, 32768/2);
+		config.setInteger(NettyConfig.STATE_REPLICATION_LOW_WATERMARK_FACTOR, 1);
+		config.setInteger(NettyConfig.STATE_REPLICATION_HIGH_WATERMARK_FACTOR, 2);
+		config.setInteger(ReplicationOptions.STATE_REPLICATION_NUM_CONNECTIONS_POOL, 1);
+		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_PER_REPLICA, 4);
+		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_PER_REPLICA_MAX, 8);
+		config.setBoolean(ReplicationOptions.TASK_MANAGER_STATE_ROCKSDB_LOGGING, false);
 		config.setString(ReplicationOptions.TASK_MANAGER_STATE_ROCKSDB_PREDEF, "ssd");
-		config.setLong(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_MIN, 512 * 1024);
-		config.setLong(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_MAX, 1024 * 1024);
-		config.setFloat(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_FRACTION, 0.1f);
-		config.setString(TaskManagerOptions.CHECKPOINT_DIRECTORY_URI_PATH, System.getProperty("java.io.tmpdir"));
+		config.setInteger(ReplicationOptions.STATE_REPLICATION_REPLICA_SLOTS, 20);
+		config.setInteger("state.replication.ack.timeout", 3 * 60 * 1000);
+		config.setBoolean(CheckpointingOptions.LOCAL_RECOVERY, false);
+		config.setInteger(ReplicationOptions.STATE_REPLICATION_FACTOR, 2);
 		config.setString(ReplicationOptions.JM_REPLICATION_DIRECTORY, System.getProperty("java.io.tmpdir") + "/jm");
 		config.setString(ReplicationOptions.REPLICATION_DIRECTORY, System.getProperty("java.io.tmpdir") + "/t1:" + System.getProperty("java.io.tmpdir") + "/t2");
+		config.setInteger(NettyConfig.REPLICATION_NUM_THREADS_SERVER, 2);
+		config.setInteger(NettyConfig.REPLICATION_NUM_THREADS_CLIENT, 2);
+		config.setLong(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_MIN, 100 * 1024 * 1024);
+		config.setLong(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_MAX, 1024 * 1024 * 1024);
+		config.setFloat(ReplicationOptions.NETWORK_REPLICA_BUFFERS_MEMORY_FRACTION, 0.1f);
+
 
 		cluster = new TestingCluster(config);
 		cluster.start();
@@ -111,7 +120,7 @@ public class NexmarkSuite {
 
 		Map<String, String> config = new HashMap<>();
 
-		config.put("windowDuration", "90");
+		config.put("windowDuration", "500000");
 		config.put("checkpointingInterval", "60000");
 //		config.put("checkpointingTimeout", ""+(2*60*1000));
 		config.put("windowParallelism", "4");

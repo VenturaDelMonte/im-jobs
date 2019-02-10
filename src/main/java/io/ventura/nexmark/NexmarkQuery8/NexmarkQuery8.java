@@ -33,6 +33,7 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
 import org.apache.flink.streaming.util.serialization.KeyedDeserializationSchema;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.Preconditions;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -505,6 +506,7 @@ public class NexmarkQuery8 {
 		baseCfg.setProperty(ConsumerConfig.RECEIVE_BUFFER_CONFIG, "" + (128 * 1024));
 		baseCfg.setProperty(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "8192");
 		baseCfg.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "im-job");
+		baseCfg.setProperty("offsets.commit.timeout.ms", "60000");
 
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 		env.setRestartStrategy(RestartStrategies.noRestart());
@@ -601,9 +603,9 @@ public class NexmarkQuery8 {
 			.coGroup(in2)
 				.where(NewPersonEvent0::getPersonId)
 				.equalTo(AuctionEvent0::getPersonId)
-				.window(TumblingEventTimeWindows.of(Time.hours(windowDuration)))
+				.window(TumblingEventTimeWindows.of(Time.seconds(windowDuration)))
 				.with(new JoiningNewUsersWithAuctionsCoGroupFunction())
-				.name("WindowOperator")
+				.name("WindowOperator(" + windowDuration + ")")
 				.setParallelism(windowParallelism)
 				.setVirtualNodesNum(numOfVirtualNodes)
 				.setReplicaSlotsHint(numOfReplicaSlotsHint)
