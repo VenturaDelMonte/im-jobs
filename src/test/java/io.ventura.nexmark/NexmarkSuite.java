@@ -53,7 +53,8 @@ public class NexmarkSuite {
 		config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 		config.setInteger(WebOptions.PORT, 8081);
 
-		config.setString(ReplicationOptions.TASK_MANAGER_CHECKPOINT_READER, "zero-copy");
+		config.setString(ReplicationOptions.TASK_MANAGER_CHECKPOINT_READER, "zero-copy-fadvise-lazy");
+		config.setInteger(ReplicationOptions.BIN_PACKING_SERVER_CACHE, 2);
 		config.setString(CheckpointingOptions.STATE_BACKEND, "custom");
 		config.setBoolean(NettyConfig.REPLICATION_SHARE_NETTY_THREADS_POOL, false);
 		config.setInteger(NettyConfig.REPLICATION_NUM_OF_ARENAS, 16);
