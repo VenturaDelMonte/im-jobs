@@ -413,10 +413,15 @@ public class NexmarkQuery8 {
 		@Override
 		public void invoke(Query8WindowOutput record, Context context) throws Exception {
 			long timeMillis = context.currentProcessingTime();
-			sinkLatencyPersonCreation.update(timeMillis - record.getPersonCreationTimestamp());
-			sinkLatencyWindowEviction.update(timeMillis - record.getWindowEvictingTimestamp());
-			sinkLatencyAuctionCreation.update(timeMillis - record.getAuctionCreationTimestamp());
-//			try {
+			if (record.getPersonId() > 0) {
+				sinkLatencyPersonCreation.update(timeMillis - record.getPersonCreationTimestamp());
+			} else {
+				sinkLatencyAuctionCreation.update(timeMillis - record.getAuctionCreationTimestamp());
+			}
+//			sinkLatencyPersonCreation.update(timeMillis - record.getPersonCreationTimestamp());
+//			sinkLatencyWindowEviction.update(timeMillis - record.getWindowEvictingTimestamp());
+//			sinkLatencyAuctionCreation.update(timeMillis - record.getAuctionCreationTimestamp());
+////			try {
 //				buffer.append(timeMillis);
 //				buffer.append(",");
 //				buffer.append(timeMillis - record.getWindowEvictingTimestamp());
@@ -540,7 +545,7 @@ public class NexmarkQuery8 {
 		baseCfg.setProperty("offsets.commit.timeout.ms", "60000");
 
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
-		env.setRestartStrategy(RestartStrategies.noRestart());
+		env.setRestartStrategy(RestartStrategies.fallBackRestart());
 		if (checkpointingInterval > 0) {
 			env.enableCheckpointing(checkpointingInterval);
 			env.getCheckpointConfig().setMinPauseBetweenCheckpoints(minPauseBetweenCheckpoints);
@@ -674,8 +679,6 @@ public class NexmarkQuery8 {
 
 		JoinUDF function = new JoinUDF();
 
-
-
 		unionStream
 			.keyBy(new KeySelector<TaggedUnion<NewPersonEvent0, AuctionEvent0>, Long>() {
 				@Override
@@ -701,19 +704,42 @@ public class NexmarkQuery8 {
 		private transient ValueState<NewPersonEvent0> activeUser;
 		private transient ListState<AuctionEvent0> matchingAuctions;
 
+		private long seenAuctions;
+
+		@Override
+		public void open(Configuration parameters) throws Exception {
+			super.open(parameters);
+			seenAuctions = 0L;
+		}
+
 		@Override
 		public void processElement(
-				TaggedUnion<NewPersonEvent0, AuctionEvent0> value,
+				TaggedUnion<NewPersonEvent0, AuctionEvent0> in,
 				Context ctx,
 				Collector<Query8WindowOutput> out) throws Exception {
-
-
-			if (value.isOne()) {
-				activeUser.update(value.getOne());
+			if (in.isOne()) {
+				NewPersonEvent0 p = in.getOne();
+				activeUser.update(p);
+				out.collect(new Query8WindowOutput(
+						0L,
+						p.timestamp,
+						p.ingestionTimestamp,
+						0L,
+						0L,
+						p.personId));
 			} else {
-				matchingAuctions.add(value.getTwo());
+				AuctionEvent0 a = in.getTwo();
+				matchingAuctions.add(a);
+				if (++seenAuctions % 100_000 == 0) {
+					out.collect(new Query8WindowOutput(
+							0L,
+							0L,
+							0L,
+							a.timestamp,
+							a.ingestionTimestamp,
+							-a.personId));
+				}
 			}
-
 		}
 
 		@Override
