@@ -414,9 +414,15 @@ public class NexmarkQuery8 {
 		public void invoke(Query8WindowOutput record, Context context) throws Exception {
 			long timeMillis = context.currentProcessingTime();
 			if (record.getPersonId() > 0) {
-				sinkLatencyPersonCreation.update(timeMillis - record.getPersonCreationTimestamp());
+				long latency = timeMillis - record.getPersonCreationTimestamp();
+				if (latency < 60_000) {
+					sinkLatencyPersonCreation.update(latency);
+				}
 			} else {
-				sinkLatencyAuctionCreation.update(timeMillis - record.getAuctionCreationTimestamp());
+				long latency = timeMillis - record.getAuctionCreationTimestamp();
+				if (latency < 60_000) {
+					sinkLatencyAuctionCreation.update(latency);
+				}
 			}
 //			sinkLatencyPersonCreation.update(timeMillis - record.getPersonCreationTimestamp());
 //			sinkLatencyWindowEviction.update(timeMillis - record.getWindowEvictingTimestamp());
