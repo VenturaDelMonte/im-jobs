@@ -39,6 +39,7 @@ import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.HistogramStatistics;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.CoGroupedStreams;
@@ -571,6 +572,7 @@ public class NexmarkQuery8 {
 		env.getConfig().registerKryoType(AuctionEvent0.class);
 		env.getConfig().registerKryoType(NewPersonEvent0.class);
 		env.getConfig().enableObjectReuse();
+		env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
 
 		DataStream<NewPersonEvent0> in1;
 		DataStream<AuctionEvent0> in2;
