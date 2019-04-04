@@ -554,6 +554,7 @@ public class NexmarkQuery8 {
 		baseCfg.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServers);
 		baseCfg.setProperty(ConsumerConfig.RECEIVE_BUFFER_CONFIG, "" + (128 * 1024));
 		baseCfg.setProperty(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "8192");
+		baseCfg.setProperty("fetch.message.max.bytes", "" + (4 * 1024 * 1024));
 		baseCfg.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "im-job");
 		baseCfg.setProperty("offsets.commit.timeout.ms", "60000");
 
