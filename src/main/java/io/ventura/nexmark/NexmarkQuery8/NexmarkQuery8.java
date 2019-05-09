@@ -39,6 +39,7 @@ import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.HistogramStatistics;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.shaded.guava18.com.google.common.util.concurrent.RateLimiter;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -86,6 +87,142 @@ public class NexmarkQuery8 {
 
 	private static final String PERSONS_TOPIC = "nexmark_persons";
 	private static final String AUCTIONS_TOPIC = "nexmark_auctions";
+
+
+	private static final long PERSON_EVENT_RATIO = 1;
+	private static final long AUCTION_EVENT_RATIO = 4;
+	private static final long TOTAL_EVENT_RATIO = PERSON_EVENT_RATIO + AUCTION_EVENT_RATIO;
+
+	private static final int MAX_PARALLELISM = 70;
+
+	private static final long START_ID_AUCTION[] = new long[MAX_PARALLELISM];
+	private static final long START_ID_PERSON[] = new long[MAX_PARALLELISM];
+
+	private static final long MAX_PERSON_ID = 540_000_000L;
+	private static final long MAX_AUCTION_ID = 540_000_000_000L;
+
+	static {
+
+		START_ID_AUCTION[0] = START_ID_PERSON[0] = 0;
+
+		long person_stride = MAX_PERSON_ID / MAX_PARALLELISM;
+		long auction_stride = MAX_AUCTION_ID / MAX_PARALLELISM;
+		for (int i = 1; i < MAX_PARALLELISM; i++) {
+			START_ID_PERSON[i] = START_ID_PERSON[i - 1] + person_stride;
+			START_ID_AUCTION[i] = START_ID_AUCTION[i - 1] + auction_stride;
+		}
+
+
+	}
+
+	private static final int HOT_SELLER_RATIO = 100;
+
+	public static class NexmarkAuctionSource extends RichParallelSourceFunction<AuctionEvent0> {
+
+		private final long recordsToGenerate, recordsPerSecond;
+		private long minAuctionId;
+		private long minPersonId;
+
+		private volatile boolean shouldContinue = true;
+
+		public NexmarkAuctionSource(long recordsToGenerate, int recordsPerSecond) {
+			this.recordsToGenerate = recordsToGenerate;
+			this.recordsPerSecond = recordsPerSecond;
+		}
+
+		@Override
+		public void open(Configuration parameters) throws Exception {
+			super.open(parameters);
+			minAuctionId = START_ID_AUCTION[getRuntimeContext().getIndexOfThisSubtask()];
+			minPersonId = START_ID_PERSON[getRuntimeContext().getIndexOfThisSubtask()];
+		}
+
+		@Override
+		public void run(SourceContext<AuctionEvent0> ctx) throws Exception {
+			ThreadLocalRandom r = ThreadLocalRandom.current();
+			final RateLimiter limiter = RateLimiter.create(recordsPerSecond);
+			for (int eventId = 0; eventId < recordsToGenerate && shouldContinue; eventId++) {
+				synchronized (ctx.getCheckpointLock()) {
+					long epoch = eventId / TOTAL_EVENT_RATIO;
+					long offset = eventId % TOTAL_EVENT_RATIO;
+					if (offset < PERSON_EVENT_RATIO) {
+						epoch--;
+						offset = AUCTION_EVENT_RATIO - 1;
+					} else {
+						offset = AUCTION_EVENT_RATIO - 1;
+					}
+					long auctionId = minAuctionId + epoch * AUCTION_EVENT_RATIO + offset;//r.nextLong(minAuctionId, maxAuctionId);
+
+					epoch = eventId / TOTAL_EVENT_RATIO;
+					offset = eventId % TOTAL_EVENT_RATIO;
+
+					if (offset >= PERSON_EVENT_RATIO) {
+						offset = PERSON_EVENT_RATIO - 1;
+					}
+					long matchingPerson;
+					if (r.nextInt(100) > 20) {
+						long personId = epoch * PERSON_EVENT_RATIO + offset;
+						matchingPerson = minPersonId + (personId / HOT_SELLER_RATIO) * HOT_SELLER_RATIO;
+					} else {
+						long personId = epoch * PERSON_EVENT_RATIO + offset + 1;
+						long activePersons = Math.min(personId, 20_000);
+						long n = r.nextLong(activePersons + 100);
+						matchingPerson = minPersonId + personId + activePersons - n;
+					}
+					ctx.collect(new AuctionEvent0(auctionId, matchingPerson, System.currentTimeMillis(), r));
+				}
+				limiter.acquire(1);
+			}
+		}
+
+		@Override
+		public void cancel() {
+			shouldContinue = false;
+		}
+	}
+
+	public static class NexmarkPersonSource extends RichParallelSourceFunction<NewPersonEvent0> {
+
+		private long minPersonId;
+		private final long recordsToGenerate, recordsPerSecond;
+
+		private volatile boolean shouldContinue = true;
+
+		public NexmarkPersonSource(long recordsToGenerate, int recordsPerSecond) {
+			this.recordsToGenerate = recordsToGenerate;
+			this.recordsPerSecond = recordsPerSecond;
+		}
+
+		@Override
+		public void open(Configuration parameters) throws Exception {
+			super.open(parameters);
+			minPersonId = START_ID_PERSON[getRuntimeContext().getIndexOfThisSubtask()];
+		}
+
+		@Override
+		public void run(SourceContext<NewPersonEvent0> ctx) throws Exception {
+			ThreadLocalRandom r = ThreadLocalRandom.current();
+			final RateLimiter limiter = RateLimiter.create(recordsPerSecond);
+			for (int eventId = 0; eventId < recordsToGenerate && shouldContinue; eventId++) {
+				synchronized (ctx.getCheckpointLock()) {
+					long epoch = eventId / TOTAL_EVENT_RATIO;
+					long offset = eventId % TOTAL_EVENT_RATIO;
+					if (offset >= PERSON_EVENT_RATIO) {
+						offset = PERSON_EVENT_RATIO - 1;
+					}
+					long personId = minPersonId + epoch * PERSON_EVENT_RATIO + offset;
+
+					ctx.collect(new NewPersonEvent0(personId, System.currentTimeMillis(), r));
+				}
+				limiter.acquire(1);
+			}
+		}
+
+		@Override
+		public void cancel() {
+			shouldContinue = false;
+		}
+	}
 
 	private static class PersonDeserializationSchema implements KeyedDeserializationSchema<NewPersonEvent0[]> {
 
@@ -451,79 +588,6 @@ public class NexmarkQuery8 {
 		}
 	}
 
-
-	private static class PersonAutoGen extends RichParallelSourceFunction<NewPersonEvent0> {
-
-		private volatile boolean keepGoing = true;
-
-		private static final AtomicLong currentPersonId = new AtomicLong();
-
-		@Override
-		public void run(SourceContext<NewPersonEvent0> ctx) throws Exception {
-			ThreadLocalRandom r = ThreadLocalRandom.current();
-			Thread.sleep(r.nextInt(100, 500));
-			while (keepGoing) {
-				synchronized (ctx.getCheckpointLock()) {
-					for (int i = 0; i < 32; i++) {
-						int ifn = r.nextInt(Firstnames.NUM_FIRSTNAMES);
-						int iln = r.nextInt(Lastnames.NUM_LASTNAMES);
-						int iem = r.nextInt(Emails.NUM_EMAILS);
-						int ict = r.nextInt(Countries.NUM_COUNTRIES);
-						int icy = r.nextInt(Cities.NUM_CITIES);
-						long now = System.currentTimeMillis();
-						ctx.collect(new NewPersonEvent0(
-								now,
-								currentPersonId.getAndIncrement(),
-								Firstnames.FIRSTNAMES_32[ifn] + " " + Lastnames.LASTNAMES_32[iln],
-								new String(Emails.EMAILS_32[iem]),
-								new String(Cities.CITIES_32[icy]),
-								new String(Countries.COUNTRIES_32[ict]),
-								"123456789012312312",
-								"123456789012312312",
-								new String(Emails.EMAILS_32[iem]),
-								"123456789012312312",
-								now));
-					}
-				}
-				Thread.sleep(200);
-			}
-			ctx.close();
-		}
-
-		@Override
-		public void cancel() {
-			keepGoing = false;
-		}
-	}
-
-	public static class AuctionAutoGen extends RichParallelSourceFunction<AuctionEvent0> {
-
-		private volatile boolean keepGoing = true;
-
-		private static final AtomicLong currentAuctionId = new AtomicLong();
-
-
-		@Override
-		public void run(SourceContext<AuctionEvent0> ctx) throws Exception {
-			ThreadLocalRandom r = ThreadLocalRandom.current();
-			Thread.sleep(r.nextInt(100, 500));
-			while (keepGoing) {
-				synchronized (ctx.getCheckpointLock()) {
-					for (int i = 0; i < 32; i++) {
-
-					}
-				}
-				Thread.sleep(200);
-			}
-			ctx.close();
-		}
-
-		@Override
-		public void cancel() {
-			keepGoing = false;
-		}
-	}
-
 	public static void runNexmark(StreamExecutionEnvironment env, ParameterTool params) throws Exception {
 
 		final int sourceParallelism = params.getInt("sourceParallelism", 1);
@@ -584,9 +648,16 @@ public class NexmarkQuery8 {
 		DataStream<NewPersonEvent0> in1;
 		DataStream<AuctionEvent0> in2;
 
+
 		if (autogen) {
 
-			in1 = env.addSource(new PersonAutoGen()).name("NewPersonsInputStream").setParallelism(sourceParallelism)
+			final long personToGenerate = params.getLong("personToGenerate");
+			final long auctionsToGenerate = params.getLong("auctionsToGenerate");
+			final int personRate = params.getInt("personRate");
+			final int auctionRate = params.getInt("auctionRate");
+
+
+			in1 = env.addSource(new NexmarkPersonSource(personToGenerate, personRate)).name("NewPersonsInputStream").setParallelism(sourceParallelism)
 			.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(1)) {
 					@Override
 					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
@@ -594,17 +665,7 @@ public class NexmarkQuery8 {
 					}
 			}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}));
 
-			in2 = env.addSource(new RichParallelSourceFunction<AuctionEvent0>() {
-				@Override
-				public void run(SourceContext<AuctionEvent0> ctx) throws Exception {
-
-				}
-
-				@Override
-				public void cancel() {
-
-				}
-			}).name("AuctionEventInputStream").setParallelism(sourceParallelism)
+			in2 = env.addSource(new NexmarkAuctionSource(auctionsToGenerate, auctionRate)).name("AuctionEventInputStream").setParallelism(sourceParallelism)
 			.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<AuctionEvent0>(Time.seconds(1)) {
 				@Override
 				public long extractTimestamp(AuctionEvent0 auctionEvent) {

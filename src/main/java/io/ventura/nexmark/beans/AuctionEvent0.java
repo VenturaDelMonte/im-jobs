@@ -3,10 +3,12 @@ package io.ventura.nexmark.beans;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
+import io.ventura.nexmark.original.RandomStrings;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import java.io.Serializable;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Class needs public field with default, no-argument constructor to be serializable.
@@ -64,7 +66,15 @@ public class AuctionEvent0 implements Serializable {
         this.ingestionTimestamp = ingestionTimestamp;
     }
 
-    public Long getTimestamp() {
+	public AuctionEvent0(long auctionId, long matchingPerson, long timestamp, ThreadLocalRandom r) {
+		this.auctionId = auctionId;
+		this.personId = matchingPerson;
+		this.ingestionTimestamp = this.timestamp = timestamp;
+		this.name = new String(RandomStrings.RANDOM_STRINGS_NAME[r.nextInt(RandomStrings.RANDOM_STRINGS_NAME.length)]);
+		this.descr = new String(RandomStrings.RANDOM_STRINGS_DESCR[r.nextInt(RandomStrings.RANDOM_STRINGS_DESCR.length)]);
+	}
+
+	public Long getTimestamp() {
         return timestamp;
     }
 
