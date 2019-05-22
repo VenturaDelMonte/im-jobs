@@ -125,6 +125,8 @@ public class NexmarkQuery8 {
 
 		private volatile boolean shouldContinue = true;
 
+		private final int MINI_BATCH = 50;
+
 		public NexmarkAuctionSource(long recordsToGenerate, int recordsPerSecond) {
 			this.recordsToGenerate = recordsToGenerate;
 			this.recordsPerSecond = recordsPerSecond;
@@ -141,37 +143,39 @@ public class NexmarkQuery8 {
 		public void run(SourceContext<AuctionEvent0> ctx) throws Exception {
 			ThreadLocalRandom r = ThreadLocalRandom.current();
 			final RateLimiter limiter = RateLimiter.create(recordsPerSecond);
-			for (int eventId = 0; eventId < recordsToGenerate && shouldContinue; eventId++) {
+			for (long eventId = 0; eventId < recordsToGenerate && shouldContinue; ) {
 				synchronized (ctx.getCheckpointLock()) {
-					long epoch = eventId / TOTAL_EVENT_RATIO;
-					long offset = eventId % TOTAL_EVENT_RATIO;
-					if (offset < PERSON_EVENT_RATIO) {
-						epoch--;
-						offset = AUCTION_EVENT_RATIO - 1;
-					} else {
-						offset = AUCTION_EVENT_RATIO - 1;
-					}
-					long auctionId = minAuctionId + epoch * AUCTION_EVENT_RATIO + offset;//r.nextLong(minAuctionId, maxAuctionId);
+					for (int i = 0; i < MINI_BATCH; i++, eventId++) {
+						long epoch = eventId / TOTAL_EVENT_RATIO;
+						long offset = eventId % TOTAL_EVENT_RATIO;
+						if (offset < PERSON_EVENT_RATIO) {
+							epoch--;
+							offset = AUCTION_EVENT_RATIO - 1;
+						} else {
+							offset = AUCTION_EVENT_RATIO - 1;
+						}
+						long auctionId = minAuctionId + epoch * AUCTION_EVENT_RATIO + offset;//r.nextLong(minAuctionId, maxAuctionId);
 
-					epoch = eventId / TOTAL_EVENT_RATIO;
-					offset = eventId % TOTAL_EVENT_RATIO;
+						epoch = eventId / TOTAL_EVENT_RATIO;
+						offset = eventId % TOTAL_EVENT_RATIO;
 
-					if (offset >= PERSON_EVENT_RATIO) {
-						offset = PERSON_EVENT_RATIO - 1;
+						if (offset >= PERSON_EVENT_RATIO) {
+							offset = PERSON_EVENT_RATIO - 1;
+						}
+						long matchingPerson;
+						if (r.nextInt(100) > 50) {
+							long personId = epoch * PERSON_EVENT_RATIO + offset;
+							matchingPerson = minPersonId + (personId / HOT_SELLER_RATIO) * HOT_SELLER_RATIO;
+						} else {
+							long personId = epoch * PERSON_EVENT_RATIO + offset + 1;
+							long activePersons = Math.min(personId, 20_000);
+							long n = r.nextLong(activePersons + 100);
+							matchingPerson = minPersonId + personId + activePersons - n;
+						}
+						ctx.collect(new AuctionEvent0(auctionId, matchingPerson, System.currentTimeMillis(), r));
+						limiter.acquire(1);
 					}
-					long matchingPerson;
-					if (r.nextInt(100) > 20) {
-						long personId = epoch * PERSON_EVENT_RATIO + offset;
-						matchingPerson = minPersonId + (personId / HOT_SELLER_RATIO) * HOT_SELLER_RATIO;
-					} else {
-						long personId = epoch * PERSON_EVENT_RATIO + offset + 1;
-						long activePersons = Math.min(personId, 20_000);
-						long n = r.nextLong(activePersons + 100);
-						matchingPerson = minPersonId + personId + activePersons - n;
-					}
-					ctx.collect(new AuctionEvent0(auctionId, matchingPerson, System.currentTimeMillis(), r));
 				}
-				limiter.acquire(1);
 			}
 		}
 
@@ -188,6 +192,8 @@ public class NexmarkQuery8 {
 
 		private volatile boolean shouldContinue = true;
 
+		private final int MINI_BATCH = 50;
+
 		public NexmarkPersonSource(long recordsToGenerate, int recordsPerSecond) {
 			this.recordsToGenerate = recordsToGenerate;
 			this.recordsPerSecond = recordsPerSecond;
@@ -203,18 +209,21 @@ public class NexmarkQuery8 {
 		public void run(SourceContext<NewPersonEvent0> ctx) throws Exception {
 			ThreadLocalRandom r = ThreadLocalRandom.current();
 			final RateLimiter limiter = RateLimiter.create(recordsPerSecond);
-			for (int eventId = 0; eventId < recordsToGenerate && shouldContinue; eventId++) {
+			for (long eventId = 0; eventId < recordsToGenerate && shouldContinue; ) {
 				synchronized (ctx.getCheckpointLock()) {
-					long epoch = eventId / TOTAL_EVENT_RATIO;
-					long offset = eventId % TOTAL_EVENT_RATIO;
-					if (offset >= PERSON_EVENT_RATIO) {
-						offset = PERSON_EVENT_RATIO - 1;
-					}
-					long personId = minPersonId + epoch * PERSON_EVENT_RATIO + offset;
+					for (int i = 0; i < MINI_BATCH; i++, eventId++) {
+						long epoch = eventId / TOTAL_EVENT_RATIO;
+						long offset = eventId % TOTAL_EVENT_RATIO;
+						if (offset >= PERSON_EVENT_RATIO) {
+							offset = PERSON_EVENT_RATIO - 1;
+						}
+						long personId = minPersonId + epoch * PERSON_EVENT_RATIO + offset;
 
-					ctx.collect(new NewPersonEvent0(personId, System.currentTimeMillis(), r));
+						ctx.collect(new NewPersonEvent0(personId, System.currentTimeMillis(), r));
+						limiter.acquire(1);
+					}
+
 				}
-				limiter.acquire(1);
 			}
 		}
 
