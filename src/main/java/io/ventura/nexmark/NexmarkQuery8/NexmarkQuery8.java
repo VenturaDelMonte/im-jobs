@@ -93,7 +93,7 @@ public class NexmarkQuery8 {
 	private static final long AUCTION_EVENT_RATIO = 4;
 	private static final long TOTAL_EVENT_RATIO = PERSON_EVENT_RATIO + AUCTION_EVENT_RATIO;
 
-	private static final int MAX_PARALLELISM = 70;
+	private static final int MAX_PARALLELISM = 50;
 
 	private static final long START_ID_AUCTION[] = new long[MAX_PARALLELISM];
 	private static final long START_ID_PERSON[] = new long[MAX_PARALLELISM];
@@ -125,7 +125,7 @@ public class NexmarkQuery8 {
 
 		private volatile boolean shouldContinue = true;
 
-		private final int MINI_BATCH = 50;
+		private final int MINI_BATCH = 1;
 
 		public NexmarkAuctionSource(long recordsToGenerate, int recordsPerSecond) {
 			this.recordsToGenerate = recordsToGenerate;
@@ -192,7 +192,7 @@ public class NexmarkQuery8 {
 
 		private volatile boolean shouldContinue = true;
 
-		private final int MINI_BATCH = 50;
+		private final int MINI_BATCH = 1;
 
 		public NexmarkPersonSource(long recordsToGenerate, int recordsPerSecond) {
 			this.recordsToGenerate = recordsToGenerate;
