@@ -125,7 +125,7 @@ public class NexmarkQuery8 {
 
 		private volatile boolean shouldContinue = true;
 
-		private final int MINI_BATCH = 1;
+		private final int MINI_BATCH = 5;
 
 		public NexmarkAuctionSource(long recordsToGenerate, int recordsPerSecond) {
 			this.recordsToGenerate = recordsToGenerate;
@@ -144,6 +144,7 @@ public class NexmarkQuery8 {
 			ThreadLocalRandom r = ThreadLocalRandom.current();
 			final RateLimiter limiter = RateLimiter.create(recordsPerSecond);
 			for (long eventId = 0; eventId < recordsToGenerate && shouldContinue; ) {
+				long timestamp = System.currentTimeMillis();
 				synchronized (ctx.getCheckpointLock()) {
 					for (int i = 0; i < MINI_BATCH; i++, eventId++) {
 						long epoch = eventId / TOTAL_EVENT_RATIO;
@@ -172,10 +173,10 @@ public class NexmarkQuery8 {
 							long n = r.nextLong(activePersons + 100);
 							matchingPerson = minPersonId + personId + activePersons - n;
 						}
-						ctx.collect(new AuctionEvent0(auctionId, matchingPerson, System.currentTimeMillis(), r));
-						limiter.acquire(1);
+						ctx.collect(new AuctionEvent0(auctionId, matchingPerson, timestamp, r));
 					}
 				}
+				limiter.acquire(MINI_BATCH);
 			}
 		}
 
@@ -192,7 +193,7 @@ public class NexmarkQuery8 {
 
 		private volatile boolean shouldContinue = true;
 
-		private final int MINI_BATCH = 1;
+		private final int MINI_BATCH = 5;
 
 		public NexmarkPersonSource(long recordsToGenerate, int recordsPerSecond) {
 			this.recordsToGenerate = recordsToGenerate;
@@ -211,6 +212,7 @@ public class NexmarkQuery8 {
 			final RateLimiter limiter = RateLimiter.create(recordsPerSecond);
 			for (long eventId = 0; eventId < recordsToGenerate && shouldContinue; ) {
 				synchronized (ctx.getCheckpointLock()) {
+					long timestamp = System.currentTimeMillis();
 					for (int i = 0; i < MINI_BATCH; i++, eventId++) {
 						long epoch = eventId / TOTAL_EVENT_RATIO;
 						long offset = eventId % TOTAL_EVENT_RATIO;
@@ -219,11 +221,10 @@ public class NexmarkQuery8 {
 						}
 						long personId = minPersonId + epoch * PERSON_EVENT_RATIO + offset;
 
-						ctx.collect(new NewPersonEvent0(personId, System.currentTimeMillis(), r));
-						limiter.acquire(1);
+						ctx.collect(new NewPersonEvent0(personId, timestamp, r));
 					}
-
 				}
+				limiter.acquire(MINI_BATCH);
 			}
 		}
 
