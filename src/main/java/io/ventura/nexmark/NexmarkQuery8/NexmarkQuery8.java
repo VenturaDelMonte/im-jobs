@@ -277,18 +277,27 @@ public class NexmarkQuery8 {
 
 			long ingestionTimestamp = System.currentTimeMillis();
 
+			StringBuilder helper = new StringBuilder(32 + 32 + 32 + 2);
+
 			for (int i = 0; i < data.length; i++) {
 				long id = wrapper.getLong();
 				wrapper.get(tmp);
-				String name = new String(Arrays.copyOf(tmp, tmp.length));
+				String name = new String(tmp);
 				wrapper.get(tmp);
-				String surname = new String(Arrays.copyOf(tmp, tmp.length));
+				String surname = new String(tmp);
 				wrapper.get(tmp);
-				String email = name + "." + surname + "@" + new String(Arrays.copyOf(tmp, tmp.length));
+				String email = helper
+						.append(name)
+						.append(".")
+						.append(surname)
+						.append("@")
+						.append(new String(tmp))
+						.toString();
+				//name + "." + surname + "@" + new String(Arrays.copyOf(tmp, tmp.length));
 				wrapper.get(tmp);
-				String city = new String(Arrays.copyOf(tmp, tmp.length));
+				String city = new String(tmp);
 				wrapper.get(tmp);
-				String country = new String(Arrays.copyOf(tmp, tmp.length));
+				String country = new String(tmp);
 				long creditCard0 = wrapper.getLong();
 				long creditCard1 = wrapper.getLong();
 				int a = wrapper.getInt();
@@ -297,10 +306,11 @@ public class NexmarkQuery8 {
 				short maleOrFemale = wrapper.getShort();
 				long timestamp = wrapper.getLong(); // 128
 //				Preconditions.checkArgument(timestamp > 0);
+				helper.setLength(0);
 				data[i] = new NewPersonEvent0(
 						timestamp,
 						id,
-						name + " " + surname,
+						helper.append(name).append(" ").append(surname).toString(),
 						email,
 						city,
 						country,
@@ -309,6 +319,7 @@ public class NexmarkQuery8 {
 						email,
 						"" + (creditCard0 + creditCard1),
 						ingestionTimestamp);
+				helper.setLength(0);
 			}
 
 //			bytesReadSoFar += buffer.length;
@@ -388,8 +399,8 @@ public class NexmarkQuery8 {
 				data[i] = new AuctionEvent0(
 						ts,
 						id,
-						new String(Arrays.copyOf(tmp0, tmp0.length)),
-						new String(Arrays.copyOf(tmp1, tmp1.length)),
+						new String(tmp0),
+						new String(tmp1),
 						itemId,
 						pid,
 						(double) price,
@@ -551,23 +562,25 @@ public class NexmarkQuery8 {
 	private static final class NexmarkQuery8LatencyTrackingSink extends RichSinkFunction<Query8WindowOutput> {
 
 //		private transient StringBuilder buffer;
-		private transient Histogram sinkLatencyWindowEviction;
+//		private transient Histogram sinkLatencyWindowEviction;
 		private transient Histogram sinkLatencyPersonCreation;
 		private transient Histogram sinkLatencyAuctionCreation;
+		private transient Histogram sinkLatencyFlightTime;
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
 			super.open(parameters);
 //			buffer = new StringBuilder(256);
-			sinkLatencyWindowEviction = getRuntimeContext().getMetricGroup().histogram("sinkLatencyWindowEviction", new SinkLatencyTrackingHistogram());
+//			sinkLatencyWindowEviction = getRuntimeContext().getMetricGroup().histogram("sinkLatencyWindowEviction", new SinkLatencyTrackingHistogram());
 			sinkLatencyPersonCreation = getRuntimeContext().getMetricGroup().histogram("sinkLatencyPersonCreation", new SinkLatencyTrackingHistogram());
 			sinkLatencyAuctionCreation = getRuntimeContext().getMetricGroup().histogram("sinkLatencyAuctionCreation", new SinkLatencyTrackingHistogram());
+			sinkLatencyFlightTime = getRuntimeContext().getMetricGroup().histogram("sinkLatencyFlightTime", new SinkLatencyTrackingHistogram());
 		}
 
 		@Override
 		public void invoke(Query8WindowOutput record, Context context) throws Exception {
 			long timeMillis = context.currentProcessingTime();
-			if (record.getPersonId() > 0) {
+			if ((record.getPersonId() > 0)) {
 				long latency = timeMillis - record.getPersonCreationTimestamp();
 				if (latency < 60_000) {
 					sinkLatencyPersonCreation.update(latency);
@@ -576,6 +589,7 @@ public class NexmarkQuery8 {
 				long latency = timeMillis - record.getAuctionCreationTimestamp();
 				if (latency < 60_000) {
 					sinkLatencyAuctionCreation.update(latency);
+					sinkLatencyFlightTime.update(timeMillis - record.getAuctionIngestionTimestamp());
 				}
 			}
 //			sinkLatencyPersonCreation.update(timeMillis - record.getPersonCreationTimestamp());
@@ -631,6 +645,7 @@ public class NexmarkQuery8 {
 		baseCfg.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "im-job");
 		baseCfg.setProperty("offsets.commit.timeout.ms", "" + (3 * 60 * 1000));
 		baseCfg.setProperty(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, "" + (10 * 1024 * 1024));
+		baseCfg.setProperty(ConsumerConfig.CHECK_CRCS_CONFIG, "false");
 
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 		env.setRestartStrategy(RestartStrategies.fallBackRestart());
