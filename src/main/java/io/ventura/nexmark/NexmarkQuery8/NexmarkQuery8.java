@@ -787,7 +787,7 @@ public class NexmarkQuery8 {
 					return value.isOne() ? value.getOne().personId : value.getTwo().personId;
 				}
 			})
-			.process(function)
+			.flatMap(function)
 			.name("WindowOperator(" + windowDuration + ")")
 			.setParallelism(windowParallelism)
 			.setVirtualNodesNum(numOfVirtualNodes)
@@ -798,7 +798,7 @@ public class NexmarkQuery8 {
 	}
 
 	private static final class JoinUDF
-			extends KeyedProcessFunction<Long, TaggedUnion<NewPersonEvent0, AuctionEvent0>, Query8WindowOutput>
+			extends RichFlatMapFunction<TaggedUnion<NewPersonEvent0, AuctionEvent0>, Query8WindowOutput>
 			implements CheckpointedFunction {
 
 
@@ -814,9 +814,8 @@ public class NexmarkQuery8 {
 		}
 
 		@Override
-		public void processElement(
+		public void flatMap(
 				TaggedUnion<NewPersonEvent0, AuctionEvent0> in,
-				Context ctx,
 				Collector<Query8WindowOutput> out) throws Exception {
 			if (in.isOne()) {
 				NewPersonEvent0 p = in.getOne();
