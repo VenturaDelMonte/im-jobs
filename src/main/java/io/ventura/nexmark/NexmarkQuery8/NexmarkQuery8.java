@@ -582,12 +582,12 @@ public class NexmarkQuery8 {
 			long timeMillis = context.currentProcessingTime();
 			if ((record.getPersonId() > 0)) {
 				long latency = timeMillis - record.getPersonCreationTimestamp();
-				if (latency < 60_000) {
+				if (latency < 300_000) {
 					sinkLatencyPersonCreation.update(latency);
 				}
 			} else {
 				long latency = timeMillis - record.getAuctionCreationTimestamp();
-				if (latency < 60_000) {
+				if (latency < 300_000) {
 					sinkLatencyAuctionCreation.update(latency);
 					sinkLatencyFlightTime.update(timeMillis - record.getAuctionIngestionTimestamp());
 				}
