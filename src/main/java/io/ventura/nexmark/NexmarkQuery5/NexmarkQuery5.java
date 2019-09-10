@@ -203,6 +203,8 @@ public class NexmarkQuery5 {
 		private transient boolean logInit = false;
 
 		private transient int writtenSoFar = 0;
+		private transient long seenSoFar = 0;
+
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
@@ -232,6 +234,7 @@ public class NexmarkQuery5 {
 
 			stringBuffer.setLength(0);
 			logInit = true;
+			seenSoFar = 0;
 		}
 
 		@Override
@@ -296,6 +299,9 @@ public class NexmarkQuery5 {
 
 		@Override
 		public void invoke(NexmarkQuery4Output record, Context context) throws Exception {
+			if (seenSoFar++ % 200_000 > 0) {
+				return;
+			}
 			long timeMillis = context.currentProcessingTime();
 			long latency = timeMillis - record.lastTimestamp;
 			if (latency <= LATENCY_THRESHOLD) {
