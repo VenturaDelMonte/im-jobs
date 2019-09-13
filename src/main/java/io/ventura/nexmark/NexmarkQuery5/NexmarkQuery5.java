@@ -12,16 +12,23 @@ import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.RichAggregateFunction;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
+import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Gauge;
+import org.apache.flink.runtime.state.FunctionInitializationContext;
+import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
@@ -39,9 +46,14 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 
+import static io.ventura.nexmark.NexmarkQuery5.NexmarkQuery5.NexmarkQuery4LatencyTrackingSink.DEFAULT_STRIDE;
 import static io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8.readProperty;
 import static io.ventura.nexmark.common.NexmarkCommon.BIDS_TOPIC;
 
@@ -170,26 +182,82 @@ public class NexmarkQuery5 {
 						return e.auctionId;
 					}
 				})
+				.process(new Aggregator(Time.seconds(windowDuration)))
 //				.window(TumblingEventTimeWindows.of(Time.seconds(windowDuration)))
-				.window(SlidingEventTimeWindows.of(Time.seconds(windowDuration), Time.seconds(windowSlide)))
-				.aggregate(new NexmarkQuery4Aggregator())
+//				.window(SlidingEventTimeWindows.of(Time.seconds(windowDuration), Time.seconds(windowSlide)))
+//				.aggregate(new NexmarkQuery4Aggregator())
 				.setReplicaSlotsHint(1)
 				.setVirtualNodesNum(numOfVirtualNodes)
 				.name("Nexmark4Aggregator")
 				.uid(new UUID(0, 5).toString())
 				.setParallelism(windowParallelism)
-				.addSink(new NexmarkQuery4LatencyTrackingSink())
+				.addSink(new NexmarkQuery4LatencyTrackingSink(DEFAULT_STRIDE))
 				.name("Nexmark4Sink")
 				.setParallelism(sinkParallelism)
 				.uid(new UUID(0, 6).toString());
 
 	}
 
-	private static final class NexmarkQuery4LatencyTrackingSink extends RichSinkFunction<NexmarkQuery4Output> {
+
+	static class Aggregator extends KeyedProcessFunction<Long, BidEvent0, NexmarkQuery4Output> implements CheckpointedFunction {
+
+		private final long windowDuration;
+
+		private transient HashMap<Long, NexmarkQuery4Accumulator> temp;
+		private transient MapState<Long, NexmarkQuery4Accumulator> state;
+
+		public Aggregator(Time windowDuration) {
+			this.windowDuration = windowDuration.toMilliseconds();
+		}
+
+		@Override
+		public void snapshotState(FunctionSnapshotContext context) throws Exception {
+			state.clear();
+			for (Map.Entry<Long, NexmarkQuery4Accumulator> e : temp.entrySet()) {
+				state.put(e.getKey(), e.getValue());
+			}
+		}
+
+		@Override
+		public void initializeState(FunctionInitializationContext context) throws Exception {
+			state = context.getKeyedStateStore().getMapState(new MapStateDescriptor<>("state", TypeInformation.of(Long.class), TypeInformation.of(NexmarkQuery4Accumulator.class)));
+			temp = new HashMap<>(8192);
+		}
+
+		@Override
+		public void processElement(BidEvent0 value, Context ctx, Collector<NexmarkQuery4Output> out) throws Exception {
+			NexmarkQuery4Accumulator old = temp.compute(value.auctionId, new BiFunction<Long, NexmarkQuery4Accumulator, NexmarkQuery4Accumulator>() {
+				@Override
+				public NexmarkQuery4Accumulator apply(Long key, NexmarkQuery4Accumulator acc) {
+					if (acc == null) {
+						acc = new NexmarkQuery4Accumulator(key, value.bid, value.timestamp, value.ingestionTimestamp);
+					} else {
+						acc.add(value);
+					}
+					return acc;
+				}
+			});
+			if (old == null || old.count == 1) {
+				ctx.timerService().registerEventTimeTimer(windowDuration);
+			}
+		}
+
+		@Override
+		public void onTimer(long timestamp, OnTimerContext ctx, Collector<NexmarkQuery4Output> out) throws Exception {
+			super.onTimer(timestamp, ctx, out);
+
+			out.collect(temp.remove(ctx.getCurrentKey()).toOutput());
+		}
+	}
+
+	public static final class NexmarkQuery4LatencyTrackingSink extends RichSinkFunction<NexmarkQuery4Output> implements Gauge<Double> {
+
+		public static final int DEFAULT_STRIDE = 2_000;
 
 		private static final long LATENCY_THRESHOLD = 10L * 60L * 1000L;
 
 		private transient SummaryStatistics sinkLatencyBid;
+		private transient SummaryStatistics sinkLatencyWindow;
 		private transient SummaryStatistics sinkLatencyFlightTime;
 
 		private transient BufferedWriter writer;
@@ -203,13 +271,22 @@ public class NexmarkQuery5 {
 		private transient boolean logInit = false;
 
 		private transient int writtenSoFar = 0;
+
 		private transient long seenSoFar = 0;
 
+		private final int stride;
+
+		private transient AtomicInteger latency;
+
+		public NexmarkQuery4LatencyTrackingSink(int stride) {
+			this.stride = stride;
+		}
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
 			super.open(parameters);
 
+			this.sinkLatencyWindow = new SummaryStatistics();
 			this.sinkLatencyBid = new SummaryStatistics();
 			this.sinkLatencyFlightTime = new SummaryStatistics();
 			this.stringBuffer = new StringBuffer(2048);
@@ -224,7 +301,7 @@ public class NexmarkQuery5 {
 				this.writer.write("\n");
 			} else {
 				this.writer = new BufferedWriter(new FileWriter(logFile, false));
-				stringBuffer.append("subtask,ts,bidLatencyCount,flightTimeCount,bidLatencyMean,flightTimeMean,bidLatencyStd,flightTimeStd,bidLatencyMin,flightTimeMin,bidLatencyMax,flightTimeMax");
+				stringBuffer.append("subtask,ts,bidLatencyCount,flightTimeCount,bidLatencyMean,flightTimeMean,sinkLatencyWindow,bidLatencyStd,flightTimeStd,bidLatencyMin,flightTimeMin,bidLatencyMax,flightTimeMax");
 				stringBuffer.append("\n");
 				writer.write(stringBuffer.toString());
 				writtenSoFar += stringBuffer.length() * 2;
@@ -235,6 +312,10 @@ public class NexmarkQuery5 {
 			stringBuffer.setLength(0);
 			logInit = true;
 			seenSoFar = 0;
+
+			latency = new AtomicInteger(0);
+
+			getRuntimeContext().getMetricGroup().gauge("bidsLatency", this);
 		}
 
 		@Override
@@ -257,14 +338,16 @@ public class NexmarkQuery5 {
 				stringBuffer.append(timestamp);
 				stringBuffer.append(",");
 
-				stringBuffer.append(sinkLatencyBid.getSum());
+				stringBuffer.append(sinkLatencyBid.getN());
 				stringBuffer.append(",");
-				stringBuffer.append(sinkLatencyFlightTime.getSum());
+				stringBuffer.append(sinkLatencyFlightTime.getN());
 				stringBuffer.append(",");
 
 				stringBuffer.append(sinkLatencyBid.getMean());
 				stringBuffer.append(",");
 				stringBuffer.append(sinkLatencyFlightTime.getMean());
+				stringBuffer.append(",");
+				stringBuffer.append(sinkLatencyWindow.getMean());
 				stringBuffer.append(",");
 
 				stringBuffer.append(sinkLatencyBid.getStandardDeviation());
@@ -299,16 +382,22 @@ public class NexmarkQuery5 {
 
 		@Override
 		public void invoke(NexmarkQuery4Output record, Context context) throws Exception {
-			if (seenSoFar++ % 200_000 > 0) {
-				return;
-			}
 			long timeMillis = context.currentProcessingTime();
 			long latency = timeMillis - record.lastTimestamp;
 			if (latency <= LATENCY_THRESHOLD) {
 				sinkLatencyBid.addValue(latency);
 				sinkLatencyFlightTime.addValue(timeMillis - record.lastIngestionTimestamp);
-				updateCSV(timeMillis);
+				sinkLatencyWindow.addValue(timeMillis - record.windowTriggeringTimestamp);
+				this.latency.lazySet((int) sinkLatencyBid.getMean());
+				if (seenSoFar++ % stride == 0) {
+					updateCSV(timeMillis);
+				}
 			}
+		}
+
+		@Override
+		public Double getValue() {
+			return (double) latency.get();
 		}
 	}
 
@@ -360,19 +449,26 @@ public class NexmarkQuery5 {
 		public long lastIngestionTimestamp = 0;
 		public long lastTimestamp = 0;
 		public double maxPrice = 0;
+		public long count = 1;
 
 		public NexmarkQuery4Accumulator(long id, double maxPrice, long ts, long lastTs) {
 			this.auction = id;
 			this.maxPrice = maxPrice;
 			this.lastTimestamp = ts;
 			this.lastIngestionTimestamp = lastTs;
+
 		}
 
 		public NexmarkQuery4Accumulator add(BidEvent0 e) {
 			maxPrice = Math.max(maxPrice, e.bid);
 			auction = e.auctionId;
-			lastIngestionTimestamp = Math.max(lastIngestionTimestamp, e.ingestionTimestamp);
-			lastTimestamp = Math.max(lastTimestamp, e.timestamp);
+//			lastIngestionTimestamp = e.ingestionTimestamp;
+//			lastTimestamp = e.timestamp;
+			if (lastTimestamp < e.timestamp) {
+				lastTimestamp = e.timestamp;
+				lastIngestionTimestamp = e.ingestionTimestamp;
+			}
+			count++;
 			return this;
 		}
 
@@ -392,10 +488,12 @@ public class NexmarkQuery5 {
 
 		public long lastIngestionTimestamp = 0;
 		public long lastTimestamp = 0;
+		public long windowTriggeringTimestamp = 0;
 
 		public NexmarkQuery4Output(long timestamp, long ingestionTimestamp) {
-			this.lastIngestionTimestamp = lastTimestamp;
-			this.lastTimestamp = timestamp;
+			this.lastIngestionTimestamp = timestamp;
+			this.lastTimestamp = ingestionTimestamp;
+			this.windowTriggeringTimestamp = System.currentTimeMillis();
 		}
 	}
 }
