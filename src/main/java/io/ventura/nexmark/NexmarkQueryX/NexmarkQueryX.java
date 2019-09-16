@@ -22,6 +22,7 @@ import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
@@ -40,9 +41,11 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
+import org.apache.flink.streaming.api.functions.windowing.ProcessAllWindowFunction;
 import org.apache.flink.streaming.api.functions.windowing.RichWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
@@ -291,9 +294,23 @@ public class NexmarkQueryX {
 
 		// query 7 - highest bid
 
-
-
-
+		DataStream<SessionOutput> highestBid = in0
+				.keyBy(new KeySelector<BidEvent0, Long>() {
+					@Override
+					public Long getKey(BidEvent0 value) throws Exception {
+						return value.personId;
+					}
+				})
+				.window(EventTimeSessionWindows.withGap(Time.seconds(sessionDuration)))
+				.allowedLateness(Time.seconds(sessionAllowedLateness))
+				.apply(new SessionWindowUdf())
+				.setVirtualNodesNum(4)
+				.setReplicaSlotsHint(1)
+				.setParallelism(windowParallelism)
+				.windowAll(TumblingEventTimeWindows.of(Time.seconds(10)))
+				.process(new HighestBidProcess())
+				.setVirtualNodesNum(1)
+				.setReplicaSlotsHint(1);
 
 		// sinks
 		sessionLatency
@@ -302,6 +319,36 @@ public class NexmarkQueryX {
 		winningBids
 				.addSink(new WinningBidLatencyTracker())
 				.setParallelism(windowParallelism);
+	}
+
+	public static class HighestBidProcess extends ProcessAllWindowFunction<SessionOutput, SessionOutput, TimeWindow>
+			implements CheckpointedFunction {
+
+		private transient MapState<Long, SessionOutput> state;
+
+		@Override
+		public void process(Context context, Iterable<SessionOutput> elements, Collector<SessionOutput> out) throws Exception {
+			SessionOutput last = null;
+			for (SessionOutput e : elements) {
+				state.put(e.key, e);
+				if (last == null) {
+					last = e;
+				} else if (last.latency < e.latency) {
+					last = e;
+				}
+			}
+			out.collect(last);
+		}
+
+		@Override
+		public void snapshotState(FunctionSnapshotContext context) throws Exception {
+
+		}
+
+		@Override
+		public void initializeState(FunctionInitializationContext context) throws Exception {
+			state = context.getKeyedStateStore().getMapState(new MapStateDescriptor<>("state", TypeInformation.of(Long.class), TypeInformation.of(SessionOutput.class)));
+		}
 	}
 
 	public static class WinningBidsMapper
@@ -390,7 +437,7 @@ public class NexmarkQueryX {
 					ingestionLatency = e.ingestionTimestamp;
 				}
 			}
-			out.collect(new SessionOutput(latency, ingestionLatency));
+			out.collect(new SessionOutput(key, latency, ingestionLatency));
 		}
 	}
 
@@ -407,9 +454,10 @@ public class NexmarkQueryX {
 
 	public static class SessionOutput implements Serializable {
 
-		public final long latency, ingestionLatency;
+		public final long key, latency, ingestionLatency;
 
-		public SessionOutput(long latency, long ingestionLatency) {
+		public SessionOutput(long key, long latency, long ingestionLatency) {
+			this.key = key;
 			this.latency = latency;
 			this.ingestionLatency = ingestionLatency;
 		}
@@ -476,7 +524,7 @@ public class NexmarkQueryX {
 				this.writer.write("\n");
 			} else {
 				this.writer = new BufferedWriter(new FileWriter(logFile, false));
-				stringBuffer.append("subtask,ts,bidLatencyCount,flightTimeCount,bidLatencyMean,flightTimeMean,bidLatencyStd,flightTimeStd,bidLatencyMin,flightTimeMin,bidLatencyMax,flightTimeMax");
+				stringBuffer.append("subtask,ts,bidLatencyCount,flightTimeCount,bidLatencyMean,flightTimeMean,bidLatencyMin,flightTimeMin,bidLatencyMax,flightTimeMax");
 				stringBuffer.append("\n");
 				writer.write(stringBuffer.toString());
 				writtenSoFar += stringBuffer.length() * 2;
@@ -518,10 +566,10 @@ public class NexmarkQueryX {
 				stringBuffer.append(sinkLatencyFlightTime.getMean());
 				stringBuffer.append(",");
 
-				stringBuffer.append(sinkLatencyBid.getStandardDeviation());
-				stringBuffer.append(",");
-				stringBuffer.append(sinkLatencyFlightTime.getStandardDeviation());
-				stringBuffer.append(",");
+//				stringBuffer.append(sinkLatencyBid.getStandardDeviation());
+//				stringBuffer.append(",");
+//				stringBuffer.append(sinkLatencyFlightTime.getStandardDeviation());
+//				stringBuffer.append(",");append
 
 
 				stringBuffer.append(sinkLatencyBid.getMin());
