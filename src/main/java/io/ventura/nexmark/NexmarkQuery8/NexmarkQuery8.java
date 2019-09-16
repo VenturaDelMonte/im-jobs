@@ -242,7 +242,7 @@ public class NexmarkQuery8 {
 		}
 	}
 
-	private static final class NexmarkQuery8LatencyTrackingSink extends RichSinkFunction<Query8WindowOutput> {
+	public static final class NexmarkQuery8LatencyTrackingSink extends RichSinkFunction<Query8WindowOutput> {
 
 		private static final long LATENCY_THRESHOLD = 10L * 60L * 1000L;
 
@@ -589,7 +589,7 @@ public class NexmarkQuery8 {
 			.setParallelism(sinkParallelism);
 	}
 
-	private static final class JoinUDF
+	public static final class JoinUDF
 			extends RichFlatMapFunction<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>, Query8WindowOutput>
 			implements CheckpointedFunction {
 

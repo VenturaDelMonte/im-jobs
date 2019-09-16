@@ -10,9 +10,12 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ReplicationOptions;
 import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.configuration.WebOptions;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
+import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.instance.ActorGateway;
 import org.apache.flink.runtime.io.network.netty.NettyConfig;
 import org.apache.flink.runtime.jobgraph.JobGraph;
+import org.apache.flink.runtime.messages.JobManagerMessages;
 import org.apache.flink.runtime.testingUtils.TestingCluster;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.junit.AfterClass;
@@ -22,11 +25,14 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.concurrent.Future;
 import scala.concurrent.duration.Deadline;
 import scala.concurrent.duration.FiniteDuration;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 public class NexmarkSuite {
@@ -34,7 +40,7 @@ public class NexmarkSuite {
 	private static final Logger LOG = LoggerFactory.getLogger(NexmarkSuite.class);
 
 
-	private static final int numTaskManagers = 4;
+	private static final int numTaskManagers = 8;
 	private static final int slotsPerTaskManager = 1;
 
 
@@ -50,7 +56,9 @@ public class NexmarkSuite {
 		Configuration config = new Configuration();
 		config.setInteger(ConfigConstants.LOCAL_NUMBER_TASK_MANAGER, numTaskManagers);
 		config.setInteger(TaskManagerOptions.NUM_TASK_SLOTS, slotsPerTaskManager);
-		config.setInteger(TaskManagerOptions.MANAGED_MEMORY_SIZE.key(), 2048);
+		config.setLong(TaskManagerOptions.NETWORK_BUFFERS_MEMORY_MIN, 16 * 1024 * 1024);
+		config.setLong(TaskManagerOptions.NETWORK_BUFFERS_MEMORY_MAX, 32 * 1024 * 1024);
+		config.setFloat(TaskManagerOptions.NETWORK_BUFFERS_MEMORY_FRACTION, 0.2f);
 
 		config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 		config.setInteger(WebOptions.PORT, 8081);
@@ -59,7 +67,7 @@ public class NexmarkSuite {
 		config.setInteger(ReplicationOptions.BIN_PACKING_SERVER_CACHE, 2);
 		config.setString(CheckpointingOptions.STATE_BACKEND, "custom");
 		config.setBoolean(NettyConfig.REPLICATION_SHARE_NETTY_THREADS_POOL, false);
-		config.setInteger(NettyConfig.REPLICATION_NUM_OF_ARENAS, 16);
+		config.setInteger(NettyConfig.REPLICATION_NUM_OF_ARENAS, 2);
 		config.setInteger(ReplicationOptions.NETWORK_BUFFERS_SIZE, 32768/2);
 		config.setInteger(NettyConfig.STATE_REPLICATION_LOW_WATERMARK_FACTOR, 1);
 		config.setInteger(NettyConfig.STATE_REPLICATION_HIGH_WATERMARK_FACTOR, 2);
@@ -207,5 +215,50 @@ public class NexmarkSuite {
 		ActorGateway jobManager = cluster.getLeaderGateway(deadline.timeLeft());
 
 		cluster.submitJobAndWait(jobGraph, true);
+	}
+
+	@Test
+	public void runNexmarkQXWithHandover() throws Exception {
+
+		Map<String, String> config = new HashMap<>();
+
+		config.put("checkpointingInterval", "5000");
+//		config.put("checkpointingTimeout", ""+(2*60*1000));
+		config.put("windowParallelism", "4");
+		config.put("numOfVirtualNodes", "1");
+		config.put("sourceParallelism", "2");
+		config.put("minPauseBetweenCheckpoints", "10000");
+		config.put("sinkParallelism", "4");
+		config.put("autogen", "1");
+
+		ParameterTool params = ParameterTool.fromMap(config);
+
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		NexmarkQueryX.runNexmarkQX(env, params);
+
+		JobGraph jobGraph = env.getStreamGraph().getJobGraph();
+
+		FiniteDuration timeout = new FiniteDuration(10, TimeUnit.MINUTES);
+		Deadline deadline = timeout.fromNow();
+
+		ActorGateway jobManager = cluster.getLeaderGateway(deadline.timeLeft());
+
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					Thread.sleep(5000);
+					Future<Object> response = jobManager.ask(new JobManagerMessages.RemoveTaskManager(new ResourceID(0, 0).getResourceIdString()), timeout);
+					CompletableFuture<Object> responseFuture = FutureUtils.<Object>toJava(response);
+					Object o = responseFuture.get();
+					LOG.debug("{}", o);
+				} catch (InterruptedException | ExecutionException e) {
+					e.printStackTrace();
+				}
+			}
+		}).start();
+
+				cluster.submitJobAndWait(jobGraph, true);
 	}
 }
