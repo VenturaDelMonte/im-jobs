@@ -262,6 +262,12 @@ public class NexmarkQuery8 {
 
 		private transient int writtenSoFar = 0;
 
+		private final String name;
+
+		public NexmarkQuery8LatencyTrackingSink(String name) {
+			this.name = name;
+		}
+
 		@Override
 		public void open(Configuration parameters) throws Exception {
 			super.open(parameters);
@@ -278,15 +284,19 @@ public class NexmarkQuery8 {
 			this.index = getRuntimeContext().getIndexOfThisSubtask();
 
 			File logDir = new File(readProperty("flink.sink.csv.dir", System.getProperty("java.io.tmpdir")));
-
-			File logFile = new File(logDir, "latency_" + index + ".csv");
+			File logSubDir = new File(logDir, name + "_" + + index);
+			if (!logSubDir.exists()) {
+				logSubDir.mkdirs();
+			}
+			File logFile = new File(logSubDir, name + "_" + index + ".csv");
 
 			if (logFile.exists()) {
 				this.writer = new BufferedWriter(new FileWriter(logFile, true));
 				this.writer.write("\n");
 			} else {
 				this.writer = new BufferedWriter(new FileWriter(logFile, false));
-				stringBuffer.append("subtask,ts,personCount,auctionCount,flightTimeCount,personMean,auctionMean,flightTimeMean,personStd,auctionStd,flightTimeStd,personMin,auctionMin,flightTimeMin,personMax,auctionMax,flightTimeMax");
+				//stringBuffer.append("subtask,ts,personCount,auctionCount,flightTimeCount,personMean,auctionMean,flightTimeMean,personStd,auctionStd,flightTimeStd,personMin,auctionMin,flightTimeMin,personMax,auctionMax,flightTimeMax");
+				stringBuffer.append("subtask,ts,personCount,auctionCount,flightTimeCount,personMean,auctionMean,flightTimeMean,personMin,auctionMin,flightTimeMin,personMax,auctionMax,flightTimeMax");
 				stringBuffer.append("\n");
 				writer.write(stringBuffer.toString());
 				writtenSoFar += stringBuffer.length() * 2;
@@ -319,11 +329,11 @@ public class NexmarkQuery8 {
 				stringBuffer.append(timestamp);
 				stringBuffer.append(",");
 
-				stringBuffer.append(sinkLatencyPersonCreation.getSum());
+				stringBuffer.append(sinkLatencyPersonCreation.getN());
 				stringBuffer.append(",");
-				stringBuffer.append(sinkLatencyAuctionCreation.getSum());
+				stringBuffer.append(sinkLatencyAuctionCreation.getN());
 				stringBuffer.append(",");
-				stringBuffer.append(sinkLatencyFlightTime.getSum());
+				stringBuffer.append(sinkLatencyFlightTime.getN());
 				stringBuffer.append(",");
 
 				stringBuffer.append(sinkLatencyPersonCreation.getMean());
@@ -333,12 +343,12 @@ public class NexmarkQuery8 {
 				stringBuffer.append(sinkLatencyFlightTime.getMean());
 				stringBuffer.append(",");
 
-				stringBuffer.append(sinkLatencyPersonCreation.getStandardDeviation());
-				stringBuffer.append(",");
-				stringBuffer.append(sinkLatencyAuctionCreation.getStandardDeviation());
-				stringBuffer.append(",");
-				stringBuffer.append(sinkLatencyFlightTime.getStandardDeviation());
-				stringBuffer.append(",");
+//				stringBuffer.append(sinkLatencyPersonCreation.getStandardDeviation());
+//				stringBuffer.append(",");
+//				stringBuffer.append(sinkLatencyAuctionCreation.getStandardDeviation());
+//				stringBuffer.append(",");
+//				stringBuffer.append(sinkLatencyFlightTime.getStandardDeviation());
+//				stringBuffer.append(",");
 
 				stringBuffer.append(sinkLatencyPersonCreation.getMin());
 				stringBuffer.append(",");
@@ -584,7 +594,7 @@ public class NexmarkQuery8 {
 			.setParallelism(windowParallelism)
 			.setVirtualNodesNum(numOfVirtualNodes)
 			.setReplicaSlotsHint(numOfReplicaSlotsHint)
-		.addSink(new NexmarkQuery8LatencyTrackingSink())
+		.addSink(new NexmarkQuery8LatencyTrackingSink("large_join_q8"))
 			.name("Nexmark8Sink")
 			.setParallelism(sinkParallelism);
 	}
