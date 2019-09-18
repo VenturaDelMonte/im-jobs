@@ -289,8 +289,8 @@ public class NexmarkQueryX {
 				})
 				.process(new WinningBidsMapper())
 				.setVirtualNodesNum(4)
-				.setReplicaSlotsHint(4)
-				.setParallelism(windowParallelism);;
+				.setReplicaSlotsHint(1)
+				.setParallelism(windowParallelism);
 
 		// query 7 - highest bid
 
@@ -350,8 +350,8 @@ public class NexmarkQueryX {
 				.flatMap(function)
 				.name("WindowOperator(" + windowDuration + ")")
 				.setParallelism(windowParallelism)
-				.setVirtualNodesNum(numOfVirtualNodes)
-				.setReplicaSlotsHint(numOfReplicaSlotsHint)
+				.setVirtualNodesNum(4)
+				.setReplicaSlotsHint(4)
 			.addSink(new NexmarkQuery8.NexmarkQuery8LatencyTrackingSink("latency_large_join_qx"))
 				.name("Nexmark8Sink")
 				.setParallelism(sinkParallelism);
