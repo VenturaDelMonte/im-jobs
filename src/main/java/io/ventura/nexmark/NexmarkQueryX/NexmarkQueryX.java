@@ -93,6 +93,7 @@ public class NexmarkQueryX {
 		final int parallelism = params.getInt("parallelism", 1);
 		final int maxParallelism = params.getInt("maxParallelism", 1024);
 		final int numOfVirtualNodes = params.getInt("numOfVirtualNodes", 4);
+		final int timeout = params.getInt("timeout", 100);
 
 		final boolean autogen = params.has("autogen");
 
@@ -133,6 +134,7 @@ public class NexmarkQueryX {
 		env.getConfig().addDefaultKryoSerializer(NewPersonEvent0.class, NewPersonEvent0.NewPersonEventKryoSerializer.class);
 		env.getConfig().registerKryoType(AuctionEvent0.class);
 		env.getConfig().registerKryoType(NewPersonEvent0.class);
+		env.setBufferTimeout(timeout);
 
 		env.getConfig().enableObjectReuse();
 		env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
