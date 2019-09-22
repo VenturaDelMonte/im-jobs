@@ -263,7 +263,8 @@ public class NexmarkQueryX {
 				.apply(new SessionWindowUdf())
 				.setVirtualNodesNum(4)
 				.setReplicaSlotsHint(1)
-				.setParallelism(windowParallelism);
+				.setParallelism(windowParallelism)
+				.name("BidderSession");
 
 
 		// query 4 - average price per category
@@ -292,7 +293,8 @@ public class NexmarkQueryX {
 				.process(new WinningBidsMapper())
 				.setVirtualNodesNum(4)
 				.setReplicaSlotsHint(1)
-				.setParallelism(windowParallelism);
+				.setParallelism(windowParallelism)
+				.name("winningBids");
 
 		// query 7 - highest bid
 
@@ -309,6 +311,7 @@ public class NexmarkQueryX {
 				.setVirtualNodesNum(4)
 				.setReplicaSlotsHint(1)
 				.setParallelism(windowParallelism)
+				.name("highestBid")
 //				.windowAll(TumblingEventTimeWindows.of(Time.seconds(10)))
 //				.process(new HighestBidProcess())
 //				.setVirtualNodesNum(1)
@@ -679,6 +682,8 @@ public class NexmarkQueryX {
 
 		private final String name;
 
+		private transient long seenSoFar = 0;
+
 		public WinningBidLatencyTracker(String name) {
 			this.name = name;
 		}
@@ -714,6 +719,7 @@ public class NexmarkQueryX {
 
 			stringBuffer.setLength(0);
 			logInit = true;
+			seenSoFar = 0;
 		}
 
 		@Override
@@ -783,7 +789,9 @@ public class NexmarkQueryX {
 			if (latency <= LATENCY_THRESHOLD) {
 				sinkLatencyBid.addValue(latency);
 				sinkLatencyFlightTime.addValue(timeMillis - record.ingestionLatency);
-				updateCSV(timeMillis);
+				if (seenSoFar++ % 1_000 == 0) {
+					updateCSV(timeMillis);
+				}
 			}
 		}
 	}
