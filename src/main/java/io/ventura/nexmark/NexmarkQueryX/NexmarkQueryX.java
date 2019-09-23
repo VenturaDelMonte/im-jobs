@@ -213,28 +213,28 @@ public class NexmarkQueryX {
 					.returns(TypeInformation.of(new TypeHint<BidEvent0>() {}))
 			;
 
-			FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSourcePersons =
-				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(), baseCfg);
+//			FlinkKafkaConsumer011<NewPersonEvent0[]> kafkaSourcePersons =
+//				new FlinkKafkaConsumer011<>(PERSONS_TOPIC, new PersonDeserializationSchema(), baseCfg);
 
 			FlinkKafkaConsumer011<AuctionEvent0[]> kafkaSourceAuctions =
 					new FlinkKafkaConsumer011<>(AUCTIONS_TOPIC, new AuctionsDeserializationSchema(), baseCfg);
 
 			kafkaSourceAuctions.setCommitOffsetsOnCheckpoints(true);
 			kafkaSourceAuctions.setStartFromEarliest();
-			kafkaSourcePersons.setCommitOffsetsOnCheckpoints(true);
-			kafkaSourcePersons.setStartFromEarliest();
+//			kafkaSourcePersons.setCommitOffsetsOnCheckpoints(true);
+//			kafkaSourcePersons.setStartFromEarliest();
 
-			in1 = env
-				.addSource(kafkaSourcePersons)
-				.name("NewPersonsInputStream").setParallelism(sourceParallelism)
-				.flatMap(new PersonsFlatMapper()).setParallelism(sourceParallelism)
-				.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(2)) {
-					@Override
-					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
-						return newPersonEvent.timestamp;
-					}
-				}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}))
-			;
+//			in1 = env
+//				.addSource(kafkaSourcePersons)
+//				.name("NewPersonsInputStream").setParallelism(sourceParallelism)
+//				.flatMap(new PersonsFlatMapper()).setParallelism(sourceParallelism)
+//				.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<NewPersonEvent0>(Time.seconds(2)) {
+//					@Override
+//					public long extractTimestamp(NewPersonEvent0 newPersonEvent) {
+//						return newPersonEvent.timestamp;
+//					}
+//				}).setParallelism(sourceParallelism).returns(TypeInformation.of(new TypeHint<NewPersonEvent0>() {}))
+//			;
 
 			in2 = env
 				.addSource(kafkaSourceAuctions)
@@ -273,7 +273,7 @@ public class NexmarkQueryX {
 //
 		DataStream<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>> taggedInput1 = in0
 				.map(new JoinHelper.Input1Tagger<BidEvent0, AuctionEvent0>())
-				.setParallelism(in1.getParallelism())
+				.setParallelism(in0.getParallelism())
 				.returns(unionType);
 		DataStream<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>> taggedInput2 = in2
 				.map(new JoinHelper.Input2Tagger<BidEvent0, AuctionEvent0>())
