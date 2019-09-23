@@ -146,11 +146,11 @@ public class NexmarkQueryX {
 
 		if (autogen) {
 
-			final long bidToGenerate = params.getLong("bidToGenerate", 1_000_000);
-			final int bidRate = params.getInt("bidRate", 1024 * 1024);
+			final long bidToGenerate = params.getLong("bidToGenerate", 100_000_000);
+			final int bidRate = params.getInt("bidRate", 10 * 1024 * 1024);
 
 			final long personToGenerate = params.getLong("personToGenerate", 1_000_000);
-			final long auctionsToGenerate = params.getLong("auctionsToGenerate", 10_000_000);
+			final long auctionsToGenerate = params.getLong("auctionsToGenerate", 100_000_000);
 			final int personRate = params.getInt("personRate", 1024 * 1024);
 			final int auctionRate = params.getInt("auctionRate", 10 * 1024 * 1024);
 
@@ -544,6 +544,7 @@ public class NexmarkQueryX {
 
 			long ts = Long.MIN_VALUE;
 			long ingestionTs = Long.MIN_VALUE;
+			long count = 0;
 			for (BidEvent0 e : bidsSession.get()) {
 				if (e.timestamp > ts) {
 					ts = e.timestamp;
@@ -551,13 +552,14 @@ public class NexmarkQueryX {
 				if (e.ingestionTimestamp > ingestionTs) {
 					ingestionTs = e.ingestionTimestamp;
 				}
+				count++;
 			}
 			if (ts > 0) {
 				out.collect(new WinningBid(ctx.getCurrentKey(), ts, ingestionTs));
+				bidsSession.clear();
+				bidsSession2.clear();
+				inFlightAuction.update(null);
 			}
-			bidsSession.clear();
-			bidsSession2.clear();
-			inFlightAuction.update(null);
 		}
 
 		@Override
