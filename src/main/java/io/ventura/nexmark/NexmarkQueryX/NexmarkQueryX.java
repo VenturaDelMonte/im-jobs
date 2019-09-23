@@ -251,26 +251,26 @@ public class NexmarkQueryX {
 		}
 
 		// query 10 - bidder session
-		DataStream<SessionOutput> sessionLatency = in0
-				.keyBy(new KeySelector<BidEvent0, Long>() {
-					@Override
-					public Long getKey(BidEvent0 value) throws Exception {
-						return value.personId;
-					}
-				})
-				.window(EventTimeSessionWindows.withGap(Time.seconds(sessionDuration)))
-				.allowedLateness(Time.seconds(sessionAllowedLateness))
-				.apply(new SessionWindowUdf())
-				.setVirtualNodesNum(4)
-				.setReplicaSlotsHint(1)
-				.setParallelism(windowParallelism)
-				.name("BidderSession");
+//		DataStream<SessionOutput> sessionLatency = in0
+//				.keyBy(new KeySelector<BidEvent0, Long>() {
+//					@Override
+//					public Long getKey(BidEvent0 value) throws Exception {
+//						return value.personId;
+//					}
+//				})
+//				.window(EventTimeSessionWindows.withGap(Time.seconds(sessionDuration)))
+//				.allowedLateness(Time.seconds(sessionAllowedLateness))
+//				.apply(new SessionWindowUdf())
+//				.setVirtualNodesNum(4)
+//				.setReplicaSlotsHint(1)
+//				.setParallelism(windowParallelism)
+//				.name("BidderSession");
 
 
 		// query 4 - average price per category
 
 		JoinHelper.UnionTypeInfo<BidEvent0, AuctionEvent0> unionType = new JoinHelper.UnionTypeInfo<>(in0.getType(), in2.getType());
-
+//
 		DataStream<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>> taggedInput1 = in0
 				.map(new JoinHelper.Input1Tagger<BidEvent0, AuctionEvent0>())
 				.setParallelism(in1.getParallelism())
@@ -279,88 +279,120 @@ public class NexmarkQueryX {
 				.map(new JoinHelper.Input2Tagger<BidEvent0, AuctionEvent0>())
 				.setParallelism(in2.getParallelism())
 				.returns(unionType);
-
+//
 		DataStream<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>> unionStream = taggedInput1.union(taggedInput2);
 
 
-		DataStream<WinningBid> winningBids = unionStream
+//		DataStream<WinningBid> winningBids = unionStream
+//				.keyBy(new KeySelector<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>, Long>() {
+//					@Override
+//					public Long getKey(JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0> value) throws Exception {
+//						return value.isOne() ? value.getOne().auctionId : value.getTwo().auctionId;
+//					}
+//				})
+//				.process(new WinningBidsMapper())
+//				.setVirtualNodesNum(4)
+//				.setReplicaSlotsHint(1)
+//				.setParallelism(windowParallelism)
+//				.name("winningBids");
+
+
+		DataStream<WinningBid> combo = unionStream
 				.keyBy(new KeySelector<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>, Long>() {
 					@Override
 					public Long getKey(JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0> value) throws Exception {
 						return value.isOne() ? value.getOne().auctionId : value.getTwo().auctionId;
 					}
 				})
-				.process(new WinningBidsMapper())
+				.process(new ComboQuery())
 				.setVirtualNodesNum(4)
 				.setReplicaSlotsHint(1)
 				.setParallelism(windowParallelism)
 				.name("winningBids");
 
+
+//		DataStream<WinningBid> winningBids = unionStream
+//				.keyBy(new KeySelector<JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>, Long>() {
+//					@Override
+//					public Long getKey(JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0> value) throws Exception {
+//						return value.isOne() ? value.getOne().auctionId : value.getTwo().auctionId;
+//					}
+//				})
+//				.process(new WinningBidsMapper())
+//				.setVirtualNodesNum(4)
+//				.setReplicaSlotsHint(1)
+//				.setParallelism(windowParallelism)
+//				.name("winningBids");
+
 		// query 7 - highest bid
 
-		DataStream<SessionOutput> highestBid = in0
-				.keyBy(new KeySelector<BidEvent0, Long>() {
-					@Override
-					public Long getKey(BidEvent0 value) throws Exception {
-						return value.personId;
-					}
-				})
-				.window(EventTimeSessionWindows.withGap(Time.seconds(sessionDuration)))
-				.allowedLateness(Time.seconds(sessionAllowedLateness))
-				.apply(new SessionWindowUdf())
-				.setVirtualNodesNum(4)
-				.setReplicaSlotsHint(1)
-				.setParallelism(windowParallelism)
-				.name("highestBid")
-//				.windowAll(TumblingEventTimeWindows.of(Time.seconds(10)))
-//				.process(new HighestBidProcess())
-//				.setVirtualNodesNum(1)
+//		DataStream<SessionOutput> highestBid = in0
+//				.keyBy(new KeySelector<BidEvent0, Long>() {
+//					@Override
+//					public Long getKey(BidEvent0 value) throws Exception {
+//						return value.personId;
+//					}
+//				})
+//				.window(EventTimeSessionWindows.withGap(Time.seconds(sessionDuration)))
+//				.allowedLateness(Time.seconds(sessionAllowedLateness))
+//				.apply(new SessionWindowUdf())
+//				.setVirtualNodesNum(4)
 //				.setReplicaSlotsHint(1)
+//				.setParallelism(windowParallelism)
+//				.name("highestBid")
+////				.windowAll(TumblingEventTimeWindows.of(Time.seconds(10)))
+////				.process(new HighestBidProcess())
+////				.setVirtualNodesNum(1)
+////				.setReplicaSlotsHint(1)
 			;
 
 		// sinks
-		sessionLatency
-				.addSink(new SessionLatencyTracker("latency_session_qx"))
-				.setParallelism(windowParallelism);
-		winningBids
-				.addSink(new WinningBidLatencyTracker("winning_bid_qx"))
-				.setParallelism(windowParallelism);
+//		sessionLatency
+//				.addSink(new SessionLatencyTracker("latency_session_qx"))
+//				.setParallelism(windowParallelism);
+//		winningBids
+//				.addSink(new WinningBidLatencyTracker("winning_bid_qx"))
+//				.setParallelism(windowParallelism);
+//
+//		highestBid.addSink(new SessionLatencyTracker("highest_bid_qx"))
+//				.setParallelism(windowParallelism);
 
-		highestBid.addSink(new SessionLatencyTracker("highest_bid_qx"))
+		combo
+				.addSink(new WinningBidLatencyTracker("combo"))
 				.setParallelism(windowParallelism);
 
 		// q8
-		{
-			JoinHelper.UnionTypeInfo<NewPersonEvent0, AuctionEvent0> unionTypePA = new JoinHelper.UnionTypeInfo<>(in1.getType(), in2.getType());
-			DataStream<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>> taggedInputPA1 = in1
-				.map(new JoinHelper.Input1Tagger<NewPersonEvent0, AuctionEvent0>())
-				.setParallelism(in1.getParallelism())
-				.returns(unionTypePA);
-			DataStream<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>> taggedInputPA2 = in2
-					.map(new JoinHelper.Input2Tagger<NewPersonEvent0, AuctionEvent0>())
-					.setParallelism(in2.getParallelism())
-					.returns(unionTypePA);
-
-			DataStream<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>> unionStreamPA = taggedInputPA1.union(taggedInputPA2);
-
-			NexmarkQuery8.JoinUDF function = new NexmarkQuery8.JoinUDF();
-
-			unionStreamPA
-				.keyBy(new KeySelector<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>, Long>() {
-					@Override
-					public Long getKey(JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0> value) throws Exception {
-						return value.isOne() ? value.getOne().personId : value.getTwo().personId;
-					}
-				})
-				.flatMap(function)
-				.name("WindowOperator(" + windowDuration + ")")
-				.setParallelism(windowParallelism)
-				.setVirtualNodesNum(4)
-				.setReplicaSlotsHint(4)
-			.addSink(new NexmarkQuery8.NexmarkQuery8LatencyTrackingSink("latency_large_join_qx"))
-				.name("Nexmark8Sink")
-				.setParallelism(sinkParallelism);
-		}
+//		{
+//			JoinHelper.UnionTypeInfo<NewPersonEvent0, AuctionEvent0> unionTypePA = new JoinHelper.UnionTypeInfo<>(in1.getType(), in2.getType());
+//			DataStream<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>> taggedInputPA1 = in1
+//				.map(new JoinHelper.Input1Tagger<NewPersonEvent0, AuctionEvent0>())
+//				.setParallelism(in1.getParallelism())
+//				.returns(unionTypePA);
+//			DataStream<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>> taggedInputPA2 = in2
+//					.map(new JoinHelper.Input2Tagger<NewPersonEvent0, AuctionEvent0>())
+//					.setParallelism(in2.getParallelism())
+//					.returns(unionTypePA);
+//
+//			DataStream<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>> unionStreamPA = taggedInputPA1.union(taggedInputPA2);
+//
+//			NexmarkQuery8.JoinUDF function = new NexmarkQuery8.JoinUDF();
+//
+//			unionStreamPA
+//				.keyBy(new KeySelector<JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0>, Long>() {
+//					@Override
+//					public Long getKey(JoinHelper.TaggedUnion<NewPersonEvent0, AuctionEvent0> value) throws Exception {
+//						return value.isOne() ? value.getOne().personId : value.getTwo().personId;
+//					}
+//				})
+//				.flatMap(function)
+//				.name("WindowOperator(" + windowDuration + ")")
+//				.setParallelism(windowParallelism)
+//				.setVirtualNodesNum(4)
+//				.setReplicaSlotsHint(4)
+//			.addSink(new NexmarkQuery8.NexmarkQuery8LatencyTrackingSink("latency_large_join_qx"))
+//				.name("Nexmark8Sink")
+//				.setParallelism(sinkParallelism);
+//		}
 	}
 
 	public static class HighestBidProcess extends ProcessAllWindowFunction<SessionOutput, SessionOutput, TimeWindow>
@@ -459,6 +491,103 @@ public class NexmarkQueryX {
 		}
 	}
 
+	public static class ComboQuery
+			extends KeyedProcessFunction<Long, JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>, WinningBid>
+			implements CheckpointedFunction {
+
+		private transient ValueState<AuctionEvent0> inFlightAuction;
+		private transient ValueState<Long> windowEnd;
+		private transient ListState<BidEvent0> bids;
+		private transient ListState<BidEvent0> bidsSession;
+		private transient ListState<BidEvent0> bidsSession2;
+
+
+		private final long windowDuration = Time.hours(4).toMilliseconds();
+
+		@Override
+		public void open(Configuration parameters) throws Exception {
+			super.open(parameters);
+		}
+
+		@Override
+		public void processElement(JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0> value, Context ctx, Collector<WinningBid> out) throws Exception {
+			if (value.isTwo()) {
+				AuctionEvent0 auction = value.getTwo();
+				if (inFlightAuction.value() == null) {
+					inFlightAuction.update(auction);
+					ctx.timerService().registerProcessingTimeTimer(auction.end);
+					long ts = ctx.timerService().currentProcessingTime() + windowDuration;
+					ctx.timerService().registerProcessingTimeTimer(ts);
+					windowEnd.update(ts);
+				} /*else {
+					LOG.warn("Duplicate auction {}", auction.auctionId);
+				}*/
+			} else {
+				BidEvent0 event = value.getOne();
+				bidsSession.add(event);
+				bids.add(event);
+				bidsSession2.add(event);
+			}
+		}
+
+		@Override
+		public void onTimer(long timestamp, OnTimerContext ctx, Collector<WinningBid> out) throws Exception {
+			super.onTimer(timestamp, ctx, out);
+
+			Long w = windowEnd.value();
+
+			if (w != null && timestamp > w) {
+				windowEnd.update(null);
+				bids.clear();
+				return;
+			}
+
+			long ts = Long.MIN_VALUE;
+			long ingestionTs = Long.MIN_VALUE;
+			for (BidEvent0 e : bidsSession.get()) {
+				if (e.timestamp > ts) {
+					ts = e.timestamp;
+				}
+				if (e.ingestionTimestamp > ingestionTs) {
+					ingestionTs = e.ingestionTimestamp;
+				}
+			}
+			if (ts > 0) {
+				out.collect(new WinningBid(ctx.getCurrentKey(), ts, ingestionTs));
+			}
+			bidsSession.clear();
+			bidsSession2.clear();
+			inFlightAuction.update(null);
+		}
+
+		@Override
+		public void snapshotState(FunctionSnapshotContext context) throws Exception {
+		}
+
+		@Override
+		public void initializeState(FunctionInitializationContext context) throws Exception {
+			ValueStateDescriptor<AuctionEvent0> personDescriptor =
+					new ValueStateDescriptor<>("inflight-auction", TypeInformation.of(AuctionEvent0.class));
+
+			ListStateDescriptor<BidEvent0> windowContentDescriptor =
+				new ListStateDescriptor<>("window-contents", TypeInformation.of(BidEvent0.class));
+
+			ValueStateDescriptor<Long> timerDescriptor =
+					new ValueStateDescriptor<>("inflight-timer", TypeInformation.of(Long.class));
+
+			ListStateDescriptor<BidEvent0> sessionDescriptor =
+				new ListStateDescriptor<>("window-session", TypeInformation.of(BidEvent0.class));
+
+			ListStateDescriptor<BidEvent0> sessionDescriptor2 =
+				new ListStateDescriptor<>("window-session2", TypeInformation.of(BidEvent0.class));
+
+			inFlightAuction = context.getKeyedStateStore().getState(personDescriptor);
+			windowEnd = context.getKeyedStateStore().getState(timerDescriptor);
+			bids = context.getKeyedStateStore().getListState(windowContentDescriptor);
+			bidsSession = context.getKeyedStateStore().getListState(sessionDescriptor);
+			bidsSession2 = context.getKeyedStateStore().getListState(sessionDescriptor2);
+		}
+	}
 
 	public static class SessionWindowUdf extends RichWindowFunction<BidEvent0, SessionOutput, Long, TimeWindow> {
 

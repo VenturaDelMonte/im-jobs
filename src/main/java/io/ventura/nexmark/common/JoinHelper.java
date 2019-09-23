@@ -221,7 +221,7 @@ public class JoinHelper {
 
 		@Override
 		public void serialize(TaggedUnion<T1, T2> record, DataOutputView target) throws IOException {
-			target.writeInt(0xdeadbeaf);
+//			target.writeInt(0xdeadbeaf);
 			if (record.isOne()) {
 				target.writeByte(1);
 				oneSerializer.serialize(record.getOne(), target);
@@ -233,7 +233,7 @@ public class JoinHelper {
 
 		@Override
 		public TaggedUnion<T1, T2> deserialize(DataInputView source) throws IOException {
-			Preconditions.checkState(source.readInt() == 0xdeadbeaf);
+//			Preconditions.checkState(source.readInt() == 0xdeadbeaf);
 			byte tag = source.readByte();
 			if (tag == 1) {
 				return TaggedUnion.one(oneSerializer.deserialize(source));
@@ -245,7 +245,7 @@ public class JoinHelper {
 		@Override
 		public TaggedUnion<T1, T2> deserialize(TaggedUnion<T1, T2> reuse,
 				DataInputView source) throws IOException {
-			Preconditions.checkState(source.readInt() == 0xdeadbeaf);
+//			Preconditions.checkState(source.readInt() == 0xdeadbeaf);
 			byte tag = source.readByte();
 			if (tag == 1) {
 				return TaggedUnion.one(oneSerializer.deserialize(source));
@@ -256,9 +256,9 @@ public class JoinHelper {
 
 		@Override
 		public void copy(DataInputView source, DataOutputView target) throws IOException {
-			int chk = source.readInt();
+//			int chk = source.readInt();
 			byte tag = source.readByte();
-			target.writeInt(chk);
+//			target.writeInt(chk);
 			target.writeByte(tag);
 			if (tag == 1) {
 				oneSerializer.copy(source, target);
