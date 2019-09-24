@@ -818,7 +818,7 @@ public class NexmarkQueryX {
 
 		private final String name;
 
-		private transient long seenSoFar = 0;
+//		private transient long seenSoFar = 0;
 
 		public WinningBidLatencyTracker(String name) {
 			this.name = name;
@@ -855,7 +855,7 @@ public class NexmarkQueryX {
 
 			stringBuffer.setLength(0);
 			logInit = true;
-			seenSoFar = 0;
+//			seenSoFar = 0;
 		}
 
 		@Override
@@ -925,9 +925,9 @@ public class NexmarkQueryX {
 			if (latency <= LATENCY_THRESHOLD) {
 				sinkLatencyBid.addValue(latency);
 				sinkLatencyFlightTime.addValue(timeMillis - record.ingestionLatency);
-				if (seenSoFar++ % 1_000 == 0) {
+//				if (seenSoFar++ % 1_000 == 0) {
 					updateCSV(timeMillis);
-				}
+//				}
 			}
 		}
 	}
