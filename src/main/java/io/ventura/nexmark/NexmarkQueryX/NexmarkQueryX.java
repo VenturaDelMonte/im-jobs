@@ -34,6 +34,7 @@ import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.TimerService;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
@@ -501,12 +502,14 @@ public class NexmarkQueryX {
 		private transient ListState<BidEvent0> bidsSession;
 		private transient ListState<BidEvent0> bidsSession2;
 
+		private transient long seenSoFar;
 
 		private final long windowDuration = Time.hours(4).toMilliseconds();
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
 			super.open(parameters);
+			seenSoFar = 0;
 		}
 
 		@Override
@@ -514,10 +517,11 @@ public class NexmarkQueryX {
 			if (value.isTwo()) {
 				AuctionEvent0 auction = value.getTwo();
 				if (inFlightAuction.value() == null) {
+					final TimerService timerService = ctx.timerService();
 					inFlightAuction.update(auction);
-					ctx.timerService().registerProcessingTimeTimer(auction.end);
-					long ts = ctx.timerService().currentProcessingTime() + windowDuration;
-					ctx.timerService().registerProcessingTimeTimer(ts);
+					timerService.registerProcessingTimeTimer(auction.end);
+					long ts = timerService.currentProcessingTime() + windowDuration;
+					timerService.registerProcessingTimeTimer(ts);
 					windowEnd.update(ts);
 				}
 			} else {
@@ -525,6 +529,9 @@ public class NexmarkQueryX {
 				bidsSession.add(event);
 				bids.add(event);
 				bidsSession2.add(event);
+				if (seenSoFar++ % 200_000 == 0) {
+					out.collect(new WinningBid(event.auctionId, event.timestamp, event.ingestionTimestamp));
+				}
 			}
 		}
 
