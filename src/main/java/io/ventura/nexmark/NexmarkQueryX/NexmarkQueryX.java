@@ -31,8 +31,10 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Gauge;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.shaded.guava18.com.google.common.util.concurrent.AtomicDouble;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.TimerService;
@@ -66,6 +68,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 
 import static io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8.readProperty;
@@ -139,6 +142,7 @@ public class NexmarkQueryX {
 		env.getConfig().registerKryoType(AuctionEvent0.class);
 		env.getConfig().registerKryoType(NewPersonEvent0.class);
 		env.setBufferTimeout(timeout);
+//		env.getConfig().setAutoWatermarkInterval(250);
 
 		env.getConfig().enableObjectReuse();
 		env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
@@ -826,6 +830,8 @@ public class NexmarkQueryX {
 
 //		private transient long seenSoFar = 0;
 
+		private transient AtomicDouble latency;
+
 		public WinningBidLatencyTracker(String name) {
 			this.name = name;
 		}
@@ -862,6 +868,14 @@ public class NexmarkQueryX {
 			stringBuffer.setLength(0);
 			logInit = true;
 //			seenSoFar = 0;
+			latency = new AtomicDouble(0);
+
+			getRuntimeContext().getMetricGroup().gauge("latency", new Gauge<Double>() {
+				@Override
+				public Double getValue() {
+					return latency.get();
+				}
+			});
 		}
 
 		@Override
@@ -931,9 +945,8 @@ public class NexmarkQueryX {
 			if (latency <= LATENCY_THRESHOLD) {
 				sinkLatencyBid.addValue(latency);
 				sinkLatencyFlightTime.addValue(timeMillis - record.ingestionLatency);
-//				if (seenSoFar++ % 1_000 == 0) {
-					updateCSV(timeMillis);
-//				}
+				updateCSV(timeMillis);
+				this.latency.lazySet(sinkLatencyBid.getMean());
 			}
 		}
 	}
