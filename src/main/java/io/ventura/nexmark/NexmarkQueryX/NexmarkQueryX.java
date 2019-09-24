@@ -519,9 +519,7 @@ public class NexmarkQueryX {
 					long ts = ctx.timerService().currentProcessingTime() + windowDuration;
 					ctx.timerService().registerProcessingTimeTimer(ts);
 					windowEnd.update(ts);
-				} /*else {
-					LOG.warn("Duplicate auction {}", auction.auctionId);
-				}*/
+				}
 			} else {
 				BidEvent0 event = value.getOne();
 				bidsSession.add(event);
