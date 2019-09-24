@@ -1,5 +1,6 @@
 package io.ventura.nexmark.NexmarkQueryX;
 
+import io.ventura.nexmark.NexmarkQuery5.NexmarkQuery5;
 import io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8;
 import io.ventura.nexmark.beans.AuctionEvent0;
 import io.ventura.nexmark.beans.BidEvent0;
@@ -62,8 +63,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.function.BiFunction;
 
 import static io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8.readProperty;
 import static io.ventura.nexmark.common.NexmarkCommon.AUCTIONS_TOPIC;
@@ -504,6 +507,9 @@ public class NexmarkQueryX {
 
 		private transient long seenSoFar;
 
+		private transient HashMap<Long, NexmarkQuery5.NexmarkQuery4Accumulator> temp;
+		private transient MapState<Long, NexmarkQuery5.NexmarkQuery4Accumulator> state;
+
 		private final long windowDuration = Time.hours(4).toMilliseconds();
 
 		@Override
@@ -519,7 +525,7 @@ public class NexmarkQueryX {
 				if (inFlightAuction.value() == null) {
 					final TimerService timerService = ctx.timerService();
 					inFlightAuction.update(auction);
-					timerService.registerProcessingTimeTimer(auction.end);
+					timerService.registerEventTimeTimer(auction.end);
 					long ts = timerService.currentProcessingTime() + windowDuration;
 					timerService.registerProcessingTimeTimer(ts);
 					windowEnd.update(ts);
@@ -549,7 +555,6 @@ public class NexmarkQueryX {
 
 			long ts = Long.MIN_VALUE;
 			long ingestionTs = Long.MIN_VALUE;
-			long count = 0;
 			for (BidEvent0 e : bidsSession.get()) {
 				if (e.timestamp > ts) {
 					ts = e.timestamp;
@@ -557,7 +562,6 @@ public class NexmarkQueryX {
 				if (e.ingestionTimestamp > ingestionTs) {
 					ingestionTs = e.ingestionTimestamp;
 				}
-				count++;
 			}
 			if (ts > 0) {
 				out.collect(new WinningBid(ctx.getCurrentKey(), ts, ingestionTs));
@@ -569,6 +573,7 @@ public class NexmarkQueryX {
 
 		@Override
 		public void snapshotState(FunctionSnapshotContext context) throws Exception {
+
 		}
 
 		@Override
@@ -593,6 +598,7 @@ public class NexmarkQueryX {
 			bids = context.getKeyedStateStore().getListState(windowContentDescriptor);
 			bidsSession = context.getKeyedStateStore().getListState(sessionDescriptor);
 			bidsSession2 = context.getKeyedStateStore().getListState(sessionDescriptor2);
+
 		}
 	}
 
