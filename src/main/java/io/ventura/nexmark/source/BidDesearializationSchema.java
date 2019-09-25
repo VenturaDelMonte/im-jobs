@@ -49,7 +49,7 @@ public class BidDesearializationSchema implements KeyedDeserializationSchema<Bid
 			long timestamp = wrapper.getLong();
 //			wrapper.get(DUMMY);
 
-			data[i] = new BidEvent0(ingestionTimestamp, timestamp, auctionId, bidderId, -1, price);
+			data[i] = BidEvent0.BIDS_RECYCLER.get().init(ingestionTimestamp, timestamp, auctionId, bidderId, -1, price);
 		}
 
 		isPartitionConsumed = newBacklog <= itemsInThisBuffer;

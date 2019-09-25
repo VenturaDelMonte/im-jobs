@@ -1,5 +1,8 @@
 package io.ventura.nexmark.NexmarkQueryX;
 
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
 import io.ventura.nexmark.NexmarkQuery5.NexmarkQuery5;
 import io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8;
 import io.ventura.nexmark.beans.AuctionEvent0;
@@ -35,6 +38,7 @@ import org.apache.flink.metrics.Gauge;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.shaded.guava18.com.google.common.util.concurrent.AtomicDouble;
+import org.apache.flink.shaded.netty4.io.netty.util.Recycler;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.TimerService;
@@ -64,6 +68,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -142,7 +147,11 @@ public class NexmarkQueryX {
 		env.getConfig().registerKryoType(AuctionEvent0.class);
 		env.getConfig().registerKryoType(NewPersonEvent0.class);
 		env.setBufferTimeout(timeout);
-//		env.getConfig().setAutoWatermarkInterval(250);
+
+		env.getConfig().registerKryoType(SessionData.class);
+		env.getConfig().registerTypeWithKryoSerializer(SessionData.class, SessionDataKryoSerializer.class);
+		env.getConfig().registerTypeWithKryoSerializer(SessionData.class, SessionDataKryoSerializer.class);
+
 
 		env.getConfig().enableObjectReuse();
 		env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
@@ -499,20 +508,98 @@ public class NexmarkQueryX {
 		}
 	}
 
+	private static final Recycler<SessionData> SESSION_DATA_RECYCLER = new Recycler<SessionData>(128 * 1024 * 1024) {
+		@Override
+		protected SessionData newObject(Handle<SessionData> handle) {
+			return new SessionData(handle);
+		}
+	};
+
+	public static class SessionData {
+
+		private static final int BUCKET_SIZE = 32;
+
+		private final Recycler.Handle<SessionData> handle;
+
+		private final byte[] data;
+
+		private final ByteBuffer wrapper;
+
+		public SessionData(Recycler.Handle<SessionData> handle) {
+			this.handle = handle;
+			this.data = new byte[BUCKET_SIZE * 6 * 8];
+			this.wrapper = ByteBuffer.wrap(data);
+		}
+
+		public SessionData init() {
+			wrapper.clear();
+//			wrapper.putLong(e.ingestionTimestamp);
+//			wrapper.putLong(e.timestamp);
+//			wrapper.putLong(e.auctionId);
+//			wrapper.putLong(e.personId);
+//			wrapper.putLong(e.bidId);
+//			wrapper.putDouble(e.bid);
+			return this;
+		}
+
+		public boolean add(BidEvent0 e) {
+			wrapper.putLong(e.ingestionTimestamp);
+			wrapper.putLong(e.timestamp);
+			wrapper.putLong(e.auctionId);
+			wrapper.putLong(e.personId);
+			wrapper.putLong(e.bidId);
+			wrapper.putDouble(e.bid);
+
+			return wrapper.remaining() > 0;
+		}
+
+		public void recycle() {
+			handle.recycle(this);
+		}
+
+		public long getTimestamp() {
+			return wrapper.getLong(8);
+		}
+
+		public long getIngestionTimestamp() {
+			return wrapper.getLong(0);
+		}
+	}
+
+	public static class SessionDataKryoSerializer extends com.esotericsoftware.kryo.Serializer<SessionData> {
+
+		public SessionDataKryoSerializer() { }
+
+		@Override
+		public void write(Kryo kryo, Output output, SessionData e) {
+			output.writeBytes(e.data);
+		}
+
+		@Override
+		public SessionData read(Kryo kryo, Input input, Class<SessionData> aClass) {
+			SessionData ret = SESSION_DATA_RECYCLER.get();
+			ret.wrapper.clear();
+			input.read(ret.data);
+			ret.wrapper.position(ret.data.length);
+			return ret;
+		}
+	}
+
 	public static class ComboQuery
 			extends KeyedProcessFunction<Long, JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>, WinningBid>
 			implements CheckpointedFunction {
 
+		private static final int SESSIONS_COUNT = 3;
+
 		private transient ValueState<AuctionEvent0> inFlightAuction;
 		private transient ValueState<Long> windowEnd;
 		private transient ListState<BidEvent0> bids;
-		private transient ListState<BidEvent0> bidsSession;
-		private transient ListState<BidEvent0> bidsSession2;
 
 		private transient long seenSoFar;
 
-		private transient HashMap<Long, NexmarkQuery5.NexmarkQuery4Accumulator> temp;
-		private transient MapState<Long, NexmarkQuery5.NexmarkQuery4Accumulator> state;
+		private transient ListState<SessionData>[] state;
+
+		private transient HashMap<Long, SessionData> staging;
 
 		private final long windowDuration = Time.hours(4).toMilliseconds();
 
@@ -536,12 +623,36 @@ public class NexmarkQueryX {
 				}
 			} else {
 				BidEvent0 event = value.getOne();
-				bidsSession.add(event);
-				bids.add(event);
-				bidsSession2.add(event);
+				long key = event.auctionId;
+				SessionData data;
+				if ((data = staging.get(key)) == null) {
+					data = SESSION_DATA_RECYCLER.get().init();
+					staging.put(key, data);
+				}
+
+				if (!data.add(event)) {
+					for (int i = 0; i < SESSIONS_COUNT; i++) {
+						state[i].add(data);
+					}
+					data.recycle();
+					staging.remove(key);
+				}
+
+				if (staging.size() >= (2 * 8192)) {
+					for (SessionData s : staging.values()) {
+						for (int i = 0; i < SESSIONS_COUNT; i++) {
+							state[i].add(s);
+						}
+						s.recycle();
+					}
+					staging.clear();
+				}
 				if (seenSoFar++ % 200_000 == 0) {
 					out.collect(new WinningBid(event.auctionId, event.timestamp, event.ingestionTimestamp));
 				}
+				bids.add(event);
+//				event.recycle();
+//				data.recycle();
 			}
 		}
 
@@ -559,18 +670,20 @@ public class NexmarkQueryX {
 
 			long ts = Long.MIN_VALUE;
 			long ingestionTs = Long.MIN_VALUE;
-			for (BidEvent0 e : bidsSession.get()) {
-				if (e.timestamp > ts) {
-					ts = e.timestamp;
+			for (SessionData e : state[0].get()) {
+				long tmp;
+				if ((tmp = e.getTimestamp()) > ts) {
+					ts = tmp;
 				}
-				if (e.ingestionTimestamp > ingestionTs) {
-					ingestionTs = e.ingestionTimestamp;
+				if ((tmp = e.getIngestionTimestamp()) > ingestionTs) {
+					ingestionTs = tmp;
 				}
 			}
 			if (ts > 0) {
 				out.collect(new WinningBid(ctx.getCurrentKey(), ts, ingestionTs));
-				bidsSession.clear();
-				bidsSession2.clear();
+				for (int i = 0; i < SESSIONS_COUNT; i++) {
+					state[i].clear();
+				}
 				inFlightAuction.update(null);
 			}
 		}
@@ -591,18 +704,18 @@ public class NexmarkQueryX {
 			ValueStateDescriptor<Long> timerDescriptor =
 					new ValueStateDescriptor<>("inflight-timer", TypeInformation.of(Long.class));
 
-			ListStateDescriptor<BidEvent0> sessionDescriptor =
-				new ListStateDescriptor<>("window-session", TypeInformation.of(BidEvent0.class));
-
-			ListStateDescriptor<BidEvent0> sessionDescriptor2 =
-				new ListStateDescriptor<>("window-session2", TypeInformation.of(BidEvent0.class));
-
 			inFlightAuction = context.getKeyedStateStore().getState(personDescriptor);
 			windowEnd = context.getKeyedStateStore().getState(timerDescriptor);
 			bids = context.getKeyedStateStore().getListState(windowContentDescriptor);
-			bidsSession = context.getKeyedStateStore().getListState(sessionDescriptor);
-			bidsSession2 = context.getKeyedStateStore().getListState(sessionDescriptor2);
 
+			state = new ListState[SESSIONS_COUNT];
+			for (int i = 0; i < SESSIONS_COUNT; i++) {
+				ListStateDescriptor<SessionData> sessionDescriptor =
+						new ListStateDescriptor<>("window-session-" + i, TypeInformation.of(SessionData.class));
+				state[i] = context.getKeyedStateStore().getListState(sessionDescriptor);
+			}
+
+			staging = new HashMap<>(1024);
 		}
 	}
 
