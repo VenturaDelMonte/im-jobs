@@ -508,7 +508,7 @@ public class NexmarkQueryX {
 		}
 	}
 
-	private static final Recycler<SessionData> SESSION_DATA_RECYCLER = new Recycler<SessionData>(128 * 1024 * 1024) {
+	private static final Recycler<SessionData> SESSION_DATA_RECYCLER = new Recycler<SessionData>(2 * 1024 * 1024) {
 		@Override
 		protected SessionData newObject(Handle<SessionData> handle) {
 			return new SessionData(handle);
@@ -521,48 +521,61 @@ public class NexmarkQueryX {
 
 		private final Recycler.Handle<SessionData> handle;
 
-		private final byte[] data;
+//		private final byte[] data;
+//
+//		private final ByteBuffer wrapper;
 
-		private final ByteBuffer wrapper;
+		private final BidEvent0[] objects;
+
+		private int pos;
 
 		public SessionData(Recycler.Handle<SessionData> handle) {
 			this.handle = handle;
-			this.data = new byte[BUCKET_SIZE * 6 * 8];
-			this.wrapper = ByteBuffer.wrap(data);
+//			this.data = new byte[BUCKET_SIZE * 6 * 8];
+//			this.wrapper = ByteBuffer.wrap(data);
+			pos = 0;
+			objects = new BidEvent0[BUCKET_SIZE];
 		}
 
 		public SessionData init() {
-			wrapper.clear();
+//			wrapper.clear();
 //			wrapper.putLong(e.ingestionTimestamp);
 //			wrapper.putLong(e.timestamp);
 //			wrapper.putLong(e.auctionId);
 //			wrapper.putLong(e.personId);
 //			wrapper.putLong(e.bidId);
 //			wrapper.putDouble(e.bid);
+			pos = 0;
 			return this;
 		}
 
 		public boolean add(BidEvent0 e) {
-			wrapper.putLong(e.ingestionTimestamp);
-			wrapper.putLong(e.timestamp);
-			wrapper.putLong(e.auctionId);
-			wrapper.putLong(e.personId);
-			wrapper.putLong(e.bidId);
-			wrapper.putDouble(e.bid);
-
-			return wrapper.remaining() > 0;
+//			wrapper.putLong(e.ingestionTimestamp);
+//			wrapper.putLong(e.timestamp);
+//			wrapper.putLong(e.auctionId);
+//			wrapper.putLong(e.personId);
+//			wrapper.putLong(e.bidId);
+//			wrapper.putDouble(e.bid);
+//			return wrapper.remaining() > 0;
+			objects[pos++] = e;
+			return pos < BUCKET_SIZE;
 		}
 
 		public void recycle() {
+			for (int i = 0; i < pos; i++) {
+				objects[i].recycle();
+			}
 			handle.recycle(this);
 		}
 
 		public long getTimestamp() {
-			return wrapper.getLong(8);
+//			return wrapper.getLong(8);
+			return objects[pos - 1].timestamp;
 		}
 
 		public long getIngestionTimestamp() {
-			return wrapper.getLong(0);
+//			return wrapper.getLong(0);
+			return objects[pos - 1].ingestionTimestamp;
 		}
 	}
 
@@ -572,16 +585,24 @@ public class NexmarkQueryX {
 
 		@Override
 		public void write(Kryo kryo, Output output, SessionData e) {
-			output.writeBytes(e.data);
+			for (int i = 0; i < e.pos; i++) {
+				output.writeLong(e.objects[i].ingestionTimestamp);
+				output.writeLong(e.objects[i].timestamp);
+				output.writeLong(e.objects[i].auctionId);
+				output.writeLong(e.objects[i].personId);
+				output.writeLong(e.objects[i].bidId);
+				output.writeDouble(e.objects[i].bid);
+			}
 		}
 
 		@Override
 		public SessionData read(Kryo kryo, Input input, Class<SessionData> aClass) {
-			SessionData ret = SESSION_DATA_RECYCLER.get();
-			ret.wrapper.clear();
-			input.read(ret.data);
-			ret.wrapper.position(ret.data.length);
-			return ret;
+//			SessionData ret = SESSION_DATA_RECYCLER.get();
+//			ret.wrapper.clear();
+//			input.read(ret.data);
+//			ret.wrapper.position(ret.data.length);
+//			return ret;
+			throw new UnsupportedOperationException();
 		}
 	}
 
@@ -589,7 +610,7 @@ public class NexmarkQueryX {
 			extends KeyedProcessFunction<Long, JoinHelper.TaggedUnion<BidEvent0, AuctionEvent0>, WinningBid>
 			implements CheckpointedFunction {
 
-		private static final int SESSIONS_COUNT = 3;
+		private static final int SESSIONS_COUNT = 2;
 
 		private transient ValueState<AuctionEvent0> inFlightAuction;
 		private transient ValueState<Long> windowEnd;
@@ -638,7 +659,7 @@ public class NexmarkQueryX {
 					staging.remove(key);
 				}
 
-				if (staging.size() >= (2 * 8192)) {
+				if (staging.size() >= (8 * 8192)) {
 					for (SessionData s : staging.values()) {
 						for (int i = 0; i < SESSIONS_COUNT; i++) {
 							state[i].add(s);

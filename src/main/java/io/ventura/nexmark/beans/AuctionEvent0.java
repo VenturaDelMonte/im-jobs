@@ -18,7 +18,7 @@ public class AuctionEvent0 implements Serializable {
 
 //    private static final Logger LOG = LoggerFactory.getLogger(AuctionEvent.class);
 
-	public static final Recycler<AuctionEvent0> AUCTIONS_RECYCLER = new Recycler<AuctionEvent0>(128 * 1024 * 1024) {
+	public static final Recycler<AuctionEvent0> AUCTIONS_RECYCLER = new Recycler<AuctionEvent0>(2 * 1024 * 1024) {
 		@Override
 		protected AuctionEvent0 newObject(Handle<AuctionEvent0> handle) {
 			return new AuctionEvent0(handle);
