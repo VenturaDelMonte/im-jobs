@@ -74,6 +74,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
 import static io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8.readProperty;
@@ -557,13 +558,14 @@ public class NexmarkQueryX {
 //			wrapper.putLong(e.bidId);
 //			wrapper.putDouble(e.bid);
 //			return wrapper.remaining() > 0;
-			objects[pos++] = e;
+			objects[pos++] = e.retain();
 			return pos < BUCKET_SIZE;
 		}
 
 		public void recycle() {
 			for (int i = 0; i < pos; i++) {
 				objects[i].recycle();
+//				objects[i] = null;
 			}
 			handle.recycle(this);
 		}
@@ -660,12 +662,18 @@ public class NexmarkQueryX {
 				}
 
 				if (staging.size() >= (8 * 8192)) {
-					for (SessionData s : staging.values()) {
-						for (int i = 0; i < SESSIONS_COUNT; i++) {
-							state[i].add(s);
+					staging.forEach(new BiConsumer<Long, SessionData>() {
+						@Override
+						public void accept(Long key, SessionData s) {
+							for (int i = 0; i < SESSIONS_COUNT; i++) {
+								try {
+									state[i].add(s);
+								} catch (Exception e) {
+								}
+							}
+							s.recycle();
 						}
-						s.recycle();
-					}
+					});
 					staging.clear();
 				}
 				if (seenSoFar++ % 200_000 == 0) {

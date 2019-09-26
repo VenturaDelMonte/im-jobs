@@ -52,9 +52,10 @@ public class BidEvent0 implements Serializable {
 		}
 	}
 
-	public void retain() {
+	public BidEvent0 retain() {
 		UNSAFE_UPDATER.incrementAndGet(this);
-	}
+        return this;
+    }
 
 
 	public static class BidEventKryoSerializer extends com.esotericsoftware.kryo.Serializer<BidEvent0> {
