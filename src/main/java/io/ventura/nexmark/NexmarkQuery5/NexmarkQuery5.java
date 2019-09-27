@@ -53,7 +53,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 
-import static io.ventura.nexmark.NexmarkQuery5.NexmarkQuery5.NexmarkQuery4LatencyTrackingSink.DEFAULT_STRIDE;
 import static io.ventura.nexmark.NexmarkQuery8.NexmarkQuery8.readProperty;
 import static io.ventura.nexmark.common.NexmarkCommon.BIDS_TOPIC;
 
@@ -191,7 +190,7 @@ public class NexmarkQuery5 {
 				.name("Nexmark4Aggregator")
 				.uid(new UUID(0, 5).toString())
 				.setParallelism(windowParallelism)
-				.addSink(new NexmarkQuery4LatencyTrackingSink(DEFAULT_STRIDE))
+				.addSink(new NexmarkQuery4LatencyTrackingSink("q5"))
 				.name("Nexmark4Sink")
 				.setParallelism(sinkParallelism)
 				.uid(new UUID(0, 6).toString());
@@ -252,8 +251,6 @@ public class NexmarkQuery5 {
 
 	public static final class NexmarkQuery4LatencyTrackingSink extends RichSinkFunction<NexmarkQuery4Output> implements Gauge<Double> {
 
-		public static final int DEFAULT_STRIDE = 1;
-
 		private static final long LATENCY_THRESHOLD = 10L * 60L * 1000L;
 
 		private transient SummaryStatistics sinkLatencyBid;
@@ -274,27 +271,29 @@ public class NexmarkQuery5 {
 
 		private transient long seenSoFar = 0;
 
-		private final int stride;
+		private final String name;
 
 		private transient AtomicInteger latency;
 
-		public NexmarkQuery4LatencyTrackingSink(int stride) {
-			this.stride = stride;
+		public NexmarkQuery4LatencyTrackingSink(String name){
+			this.name = name;
 		}
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
 			super.open(parameters);
 
-//			this.sinkLatencyWindow = new SummaryStatistics();
 			this.sinkLatencyBid = new SummaryStatistics();
 			this.sinkLatencyFlightTime = new SummaryStatistics();
 			this.stringBuffer = new StringBuffer(2048);
 			this.index = getRuntimeContext().getIndexOfThisSubtask();
 
 			File logDir = new File(readProperty("flink.sink.csv.dir", System.getProperty("java.io.tmpdir")));
-
-			File logFile = new File(logDir, "latency_q5_" + index + ".csv");
+			File logSubDir = new File(logDir, name + "_" + index);
+			if (!logSubDir.exists()) {
+				logSubDir.mkdirs();
+			}
+			File logFile = new File(logSubDir, name + "_" + index + ".csv");
 
 			if (logFile.exists()) {
 				this.writer = new BufferedWriter(new FileWriter(logFile, true));
@@ -389,9 +388,7 @@ public class NexmarkQuery5 {
 				sinkLatencyFlightTime.addValue(timeMillis - record.lastIngestionTimestamp);
 //				sinkLatencyWindow.addValue(timeMillis - record.windowTriggeringTimestamp);
 				this.latency.lazySet((int) sinkLatencyBid.getMean());
-				if (seenSoFar++ % stride == 0) {
-					updateCSV(timeMillis);
-				}
+				updateCSV(timeMillis);
 			}
 		}
 
