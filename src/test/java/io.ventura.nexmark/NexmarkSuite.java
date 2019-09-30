@@ -41,7 +41,7 @@ public class NexmarkSuite {
 
 
 	private static final int numTaskManagers = 8;
-	private static final int slotsPerTaskManager = 1;
+	private static final int slotsPerTaskManager = 2;
 
 
 	private static TestingCluster cluster;
@@ -164,12 +164,14 @@ public class NexmarkSuite {
 
 		config.put("checkpointingInterval", "60000");
 //		config.put("checkpointingTimeout", ""+(2*60*1000));
-		config.put("windowParallelism", "4");
-		config.put("numOfVirtualNodes", "1");
-		config.put("sourceParallelism", "2");
+		config.put("windowParallelism", "14");
+		config.put("numOfVirtualNodes", "4");
+		config.put("sourceParallelism", "4");
 		config.put("minPauseBetweenCheckpoints", "10000");
-		config.put("sinkParallelism", "4");
+		config.put("sinkParallelism", "14");
 		config.put("autogen", "1");
+		config.put("maxParallelism", "" + 14 * 1024);
+		config.put("bidToGenerate", "" + 10_000_000);
 
 		ParameterTool params = ParameterTool.fromMap(config);
 
