@@ -12,7 +12,7 @@ public class BidEvent0 implements Serializable {
 
 	private static final AtomicIntegerFieldUpdater<BidEvent0> UNSAFE_UPDATER = AtomicIntegerFieldUpdater.newUpdater(BidEvent0.class, "refCnt");
 
-	public static final Recycler<BidEvent0> BIDS_RECYCLER = new Recycler<BidEvent0>(2 * 1024 * 1024) {
+	public static final Recycler<BidEvent0> BIDS_RECYCLER = new Recycler<BidEvent0>(16 * 1024 * 1024) {
 		@Override
 		protected BidEvent0 newObject(Handle handle) {
 			return new BidEvent0(handle);
@@ -30,7 +30,7 @@ public class BidEvent0 implements Serializable {
 
 	private final Recycler.Handle<BidEvent0> handle;
 
-	public BidEvent0(Recycler.Handle handle) {
+	public BidEvent0(Recycler.Handle<BidEvent0> handle) {
 		this.handle = handle;
 		UNSAFE_UPDATER.set(this, 1);
 	}
