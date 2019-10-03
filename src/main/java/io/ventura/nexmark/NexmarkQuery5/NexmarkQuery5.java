@@ -221,6 +221,11 @@ public class NexmarkQuery5 {
 		public void initializeState(FunctionInitializationContext context) throws Exception {
 			state = context.getKeyedStateStore().getMapState(new MapStateDescriptor<>("state", TypeInformation.of(Long.class), TypeInformation.of(NexmarkQuery4Accumulator.class)));
 			temp = new HashMap<>(8192);
+//			if (context.isRestored()) {
+//				for (Map.Entry<Long, NexmarkQuery4Accumulator> e : state.entries()) {
+//					temp.put(e.getKey(), e.getValue());
+//				}
+//			}
 		}
 
 		@Override
@@ -245,8 +250,10 @@ public class NexmarkQuery5 {
 		@Override
 		public void onTimer(long timestamp, OnTimerContext ctx, Collector<NexmarkQuery4Output> out) throws Exception {
 			super.onTimer(timestamp, ctx, out);
-
-			out.collect(temp.remove(ctx.getCurrentKey()).toOutput());
+			NexmarkQuery4Accumulator acc;
+			if ((acc = temp.remove(ctx.getCurrentKey())) != null) {
+				out.collect(acc.toOutput());
+			}
 		}
 	}
 
