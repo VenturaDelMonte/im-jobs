@@ -202,6 +202,8 @@ public class NexmarkQuery5 {
 
 		private final long windowDuration;
 
+		private transient long seenSoFar;
+
 		private transient HashMap<Long, NexmarkQuery4Accumulator> temp;
 		private transient MapState<Long, NexmarkQuery4Accumulator> state;
 
@@ -243,6 +245,8 @@ public class NexmarkQuery5 {
 			});
 			if (old == null || old.count == 1) {
 				ctx.timerService().registerEventTimeTimer(windowDuration);
+			} else if (seenSoFar++ % 300_000 == 0) {
+				out.collect(old.toOutput());
 			}
 			value.recycle();
 		}
@@ -254,6 +258,12 @@ public class NexmarkQuery5 {
 			if ((acc = temp.remove(ctx.getCurrentKey())) != null) {
 				out.collect(acc.toOutput());
 			}
+		}
+
+		@Override
+		public void open(Configuration parameters) throws Exception {
+			super.open(parameters);
+			seenSoFar = 0;
 		}
 	}
 
