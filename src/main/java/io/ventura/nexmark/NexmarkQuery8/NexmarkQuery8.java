@@ -621,7 +621,6 @@ public class NexmarkQuery8 {
 				Collector<Query8WindowOutput> out) throws Exception {
 			if (in.isOne()) {
 				NewPersonEvent0 p = in.getOne();
-				activeUser.update(p);
 				out.collect(new Query8WindowOutput(
 						0L,
 						p.timestamp,
@@ -629,9 +628,9 @@ public class NexmarkQuery8 {
 						0L,
 						0L,
 						p.personId));
+				activeUser.update(p);
 			} else {
 				AuctionEvent0 a = in.getTwo();
-				matchingAuctions.add(a);
 				if (++seenAuctions % 200_000 == 0) {
 					out.collect(new Query8WindowOutput(
 							0L,
@@ -641,6 +640,7 @@ public class NexmarkQuery8 {
 							a.ingestionTimestamp,
 							-a.personId));
 				}
+				matchingAuctions.add(a);
 			}
 		}
 
